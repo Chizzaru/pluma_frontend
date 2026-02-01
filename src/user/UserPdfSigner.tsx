@@ -708,8 +708,7 @@ function UserPdfSigner({ preloadedDocument, onClose }: UserPdfSignerProps) {
     setError(null);
 
     const formData = new FormData();
-    formData.append("documentId", selectedDocument?.id || "");
-    formData.append("documentStatus", selectedDocument?.status || "");
+    formData.append("documentId", selectedDocument?.id || "")
     formData.append("documentFileName", selectedDocument?.fileName || "");
     formData.append("pdf_document", pdfFile!)
     formData.append("password", certificatePassword); // Use the user-provided password

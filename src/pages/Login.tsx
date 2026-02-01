@@ -4,7 +4,7 @@ import * as Form from '@radix-ui/react-form';
 import * as Label from '@radix-ui/react-label';
 import { useAuth } from '../auth/useAuth';
 import { useNavigate } from 'react-router-dom';
-
+import { type User, type Role } from "../types/auth";
 interface LoginFormData {
   username: string;
   password: string;
@@ -37,10 +37,15 @@ const Login: React.FC = () => {
     setIsLoading(true);
 
     try {
-      await login(formData.username, formData.password);
+      const user:User = await login(formData.username, formData.password);
       setSuccess(true);
       setIsLoading(false);
-      navigate('/documents/uploads');
+      if(user.roles.includes("ROLE_ADMIN")){
+        navigate('/dashboard');
+      }else{
+        navigate('/my-documents');
+      }
+      
     } catch (err: any) {
       setSuccess(false);
         setError(err.response?.data?.message || 'Login failed');

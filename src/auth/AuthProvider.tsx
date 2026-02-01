@@ -16,7 +16,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [isInitialized, setIsInitialized] = useState(false);
 
   // ✅ Login - FIXED: Don't call /auth/me after login
-  const login = async (username: string, password: string): Promise<void> => {
+  const login = async (username: string, password: string): Promise<User> => {
     try {
       console.log('🔐 Attempting login...');
       
@@ -37,7 +37,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       
       // ❌ REMOVED: Don't call /auth/me after login!
       // The cookies are set and will work on subsequent requests
-      
+      return res.data;
     } catch (error) {
       console.error('❌ Login failed:', error);
       setUser(null);

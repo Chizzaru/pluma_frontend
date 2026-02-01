@@ -27,6 +27,7 @@ import { ThemeProvider } from "./theme/ThemeProvider";
 import type { ReactNode } from "react";
 import SignedDocManagement from "./pages/SignedDocManagement";
 import Notifications from "./pages/Notifications";
+import Dashboard from "./pages/Dashboard";
 
 
 interface AppProviderProps{
@@ -124,6 +125,17 @@ function App() {
           />
 
           <Route
+            path="/dashboard"
+            element={
+              <RequireAuth>
+                <Layout>
+                  <Dashboard/>
+                </Layout>
+              </RequireAuth>
+            }
+          />
+
+          <Route
             path="/certificates"
             element={
               <RequireAuth>
@@ -174,7 +186,7 @@ function App() {
           />
 
           <Route
-            path="/documents/uploads"
+            path="my-documents"
             element={
               <RequireAuth>
                 <Layout>
@@ -196,7 +208,7 @@ function App() {
           />
 
           <Route
-            path="/documents/my-documents"
+            path="/shared"
             element={
               <RequireAuth>
                 <Layout>
@@ -207,7 +219,7 @@ function App() {
           />
 
            <Route
-            path="/documents/my-documents/sign/:id"
+            path="my-documents/sign/:id"
             element={
               <RequireAuth>
                 <Layout>

@@ -12,7 +12,7 @@ import {
   Download, 
   PenTool, 
   Share2, 
-  Forward, 
+  Info, 
   Trash2, 
   X, 
   Plus,
@@ -32,7 +32,14 @@ import {
   GripVertical,
   MoreVertical,
   File,
-  HardDrive
+  HardDrive,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  Users as UsersIcon,
+  UserCheck,
+  UserX,
+  Files
 } from 'lucide-react';
 
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -75,11 +82,15 @@ interface PDFDocument {
     username: string; 
     email: string;
     permission?: 'view' | 'view_and_sign';
+    step?: number;
+    hasSigned?: boolean;
   }>;
   availableForSigning?: boolean;
   availableForViewing?: boolean;
   permission?: 'view' | 'view_and_sign';
   downloadable?: boolean;
+  signerSteps?: SignerStep[];
+  currentSignerIndex?: number;
 }
 
 interface UserType {
@@ -101,9 +112,14 @@ interface SignerStep {
   step: number;
   userId: string;
   user?: UserType;
+  hasSigned?: boolean;
+  signedAt?: string;
+  parallel?: boolean;
+  parallelGroup?: number;
+  permission?: string;
 }
 
-// Sortable item component for drag and drop
+// Sortable item component for drag and drop with parallel signing support
 interface SortableItemProps {
   id: string;
   step: SignerStep;
@@ -111,6 +127,8 @@ interface SortableItemProps {
   moveSignerUp: (index: number) => void;
   moveSignerDown: (index: number) => void;
   totalItems: number;
+  onToggleParallel: (userId: string) => void;
+  getParallelGroup: (stepNumber: number) => SignerStep[];
 }
 
 const SortableItem: React.FC<SortableItemProps> = ({ 
@@ -119,7 +137,9 @@ const SortableItem: React.FC<SortableItemProps> = ({
   index, 
   moveSignerUp, 
   moveSignerDown, 
-  totalItems 
+  totalItems,
+  onToggleParallel,
+  getParallelGroup
 }) => {
   const {
     attributes,
@@ -136,6 +156,10 @@ const SortableItem: React.FC<SortableItemProps> = ({
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const parallelGroup = getParallelGroup(step.step);
+  const isInParallelGroup = parallelGroup.length > 1;
+  const isFirstInParallel = parallelGroup[0]?.userId === step.userId;
+
   return (
     <div
       ref={setNodeRef}
@@ -143,6 +167,8 @@ const SortableItem: React.FC<SortableItemProps> = ({
       className={`flex items-center gap-3 p-3 bg-white rounded-lg border transition-all ${
         isDragging
           ? 'border-purple-400 shadow-lg z-50'
+          : step.parallel
+          ? 'border-blue-300 bg-blue-50'
           : 'border-gray-200 hover:border-purple-300'
       }`}
     >
@@ -154,37 +180,331 @@ const SortableItem: React.FC<SortableItemProps> = ({
         <GripVertical className="w-5 h-5" />
       </div>
       
-      <div className="flex items-center justify-center w-8 h-8 bg-purple-100 rounded-full shrink-0">
-        <span className="text-sm font-bold text-purple-700">{step.step}</span>
+      <div className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
+        step.hasSigned ? 'bg-green-100' : 
+        step.parallel ? 'bg-blue-100' : 'bg-purple-100'
+      }`}>
+        <span className={`text-sm font-bold ${
+          step.hasSigned ? 'text-green-700' : 
+          step.parallel ? 'text-blue-700' : 'text-purple-700'
+        }`}>
+          {step.step}
+          {step.parallel && isFirstInParallel && (
+            <span className="text-xs ml-0.5">*</span>
+          )}
+        </span>
       </div>
       
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">
-          {step.user?.username || 'Unknown User'}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-gray-900 truncate">
+            {step.user?.username || 'Unknown User'}
+          </p>
+          {step.hasSigned && (
+            <span className="text-xs text-green-600 font-normal">
+              ✓ Signed
+            </span>
+          )}
+          {step.parallel && (
+            <span className="text-xs text-blue-600 font-normal flex items-center gap-1">
+              <UsersIcon className="w-3 h-3" />
+              Parallel
+            </span>
+          )}
+        </div>
         <p className="text-xs text-gray-500 truncate">
           {step.user?.email || ''}
         </p>
+        {step.signedAt && (
+          <p className="text-xs text-gray-400">
+            Signed on {new Date(step.signedAt).toLocaleDateString()}
+          </p>
+        )}
       </div>
       
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
+        {/* Parallel Signing Toggle */}
         <button
-          onClick={() => moveSignerUp(index)}
-          disabled={index === 0}
-          className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          title="Move up"
+          onClick={() => onToggleParallel(step.userId)}
+          className={`p-1.5 rounded transition-colors ${
+            step.parallel 
+              ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' 
+              : 'bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-blue-600'
+          }`}
+          title={step.parallel ? "Remove from parallel signing" : "Add to parallel signing"}
         >
-          <ArrowUp className="w-4 h-4" />
+          {step.parallel ? (
+            <UserX className="w-4 h-4" />
+          ) : (
+            <UserCheck className="w-4 h-4" />
+          )}
         </button>
-        <button
-          onClick={() => moveSignerDown(index)}
-          disabled={index === totalItems - 1}
-          className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          title="Move down"
-        >
-          <ArrowDown className="w-4 h-4" />
-        </button>
+        
+        {/* Move buttons */}
+        <div className="flex items-center gap-1 border-l border-gray-300 pl-2">
+          <button
+            onClick={() => moveSignerUp(index)}
+            disabled={index === 0}
+            className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Move up"
+          >
+            <ArrowUp className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => moveSignerDown(index)}
+            disabled={index === totalItems - 1}
+            className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Move down"
+          >
+            <ArrowDown className="w-4 h-4" />
+          </button>
+        </div>
       </div>
+    </div>
+  );
+};
+
+// Component to show signing order in sign dialog with parallel support
+interface SigningOrderProps {
+  document: PDFDocument;
+  currentUser: UserType | null;
+}
+
+const SigningOrderIndicator: React.FC<SigningOrderProps> = ({ document, currentUser }) => {
+  if (!document.signerSteps || document.signerSteps.length === 0) {
+    return null;
+  }
+
+  // Group signers by step number for parallel signing display
+  const stepsMap = new Map<number, SignerStep[]>();
+  document.signerSteps.forEach(step => {
+    if (!stepsMap.has(step.step)) {
+      stepsMap.set(step.step, []);
+    }
+    stepsMap.get(step.step)!.push(step);
+  });
+
+  // Get sorted steps
+  const sortedSteps = Array.from(stepsMap.entries()).sort(([a], [b]) => a - b);
+  
+  // Find current user's step(s)
+  const currentUserSteps = document.signerSteps.filter(step => step.user?.id === currentUser?.id);
+  
+  // Find the current active step (first step with any unsigned signers)
+  const currentActiveStep = sortedSteps.find(([stepNumber, signers]) => 
+    signers.some(signer => !signer.hasSigned)
+  );
+  
+  // Check if it's current user's turn to sign
+  const isCurrentUserTurn = currentUserSteps.some(userStep => 
+    currentActiveStep && 
+    userStep.step === currentActiveStep[0] && 
+    !userStep.hasSigned
+  );
+
+  // Calculate progress
+  const totalSigners = document.signerSteps.length;
+  const completedSigners = document.signerSteps.filter(s => s.hasSigned).length;
+
+  return (
+    <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <ListOrdered className="w-5 h-5 text-purple-600" />
+          <h3 className="text-base font-semibold text-gray-900">Signing Order</h3>
+          {sortedSteps.some(([_, signers]) => signers.length > 1) && (
+            <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
+              Parallel Signing Enabled
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-gray-500">
+          {completedSigners} of {totalSigners} completed
+        </div>
+      </div>
+      
+      {/* Progress bar */}
+      <div className="mb-3">
+        <div className="flex justify-between text-xs text-gray-500 mb-1">
+          <span>Progress</span>
+          <span>{Math.round((completedSigners / totalSigners) * 100)}%</span>
+        </div>
+        <div className="w-full bg-gray-200 rounded-full h-2">
+          <div 
+            className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-500"
+            style={{ width: `${(completedSigners / totalSigners) * 100}%` }}
+          ></div>
+        </div>
+      </div>
+      
+      {/* Steps List */}
+      <div className="space-y-3">
+        {sortedSteps.map(([stepNumber, signers]) => {
+          const isActive = currentActiveStep && stepNumber === currentActiveStep[0];
+          const allSigned = signers.every(signer => signer.hasSigned);
+          const someSigned = signers.some(signer => signer.hasSigned);
+          const isCurrentUserInStep = signers.some(signer => 
+            signer.user?.id === currentUser?.id
+          );
+          
+          return (
+            <div
+              key={stepNumber}
+              className={`rounded-lg border transition-all ${
+                isActive
+                  ? 'border-purple-300 bg-purple-50 shadow-sm'
+                  : allSigned
+                  ? 'border-green-200 bg-green-50'
+                  : 'border-gray-200 bg-white'
+              } ${isCurrentUserInStep ? 'ring-2 ring-offset-1 ring-blue-300' : ''}`}
+            >
+              {/* Step Header */}
+              <div className="flex items-center gap-2 p-3 border-b border-gray-200">
+                <div className={`flex items-center justify-center w-6 h-6 rounded-full ${
+                  allSigned
+                    ? 'bg-green-100 border-2 border-green-300'
+                    : isActive
+                    ? 'bg-purple-100 border-2 border-purple-300'
+                    : 'bg-gray-100 border-2 border-gray-300'
+                }`}>
+                  {allSigned ? (
+                    <CheckCircle className="w-3 h-3 text-green-600" />
+                  ) : (
+                    <span className={`text-xs font-bold ${
+                      isActive ? 'text-purple-700' : 'text-gray-600'
+                    }`}>
+                      {stepNumber}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className={`text-sm font-medium ${
+                      isCurrentUserInStep ? 'text-blue-700' : 
+                      isActive ? 'text-purple-700' : 
+                      allSigned ? 'text-green-700' : 'text-gray-700'
+                    }`}>
+                      Step {stepNumber}
+                      {signers.length > 1 && ` (${signers.length} signers in parallel)`}
+                    </p>
+                    {isActive && !allSigned && (
+                      <span className="px-1.5 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
+                        {someSigned ? 'Partially Signed' : 'Active Now'}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    {allSigned ? '✓ All signers completed' : 
+                     isActive ? (someSigned ? '⏳ Some signers pending' : '⏳ Waiting for signatures') : 
+                     '⏳ Waiting for previous steps'}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Signers in this step */}
+              <div className="p-2">
+                {signers.map((signer, idx) => {
+                  const isCurrentUser = signer.user?.id === currentUser?.id;
+                  const isLastInList = idx === signers.length - 1;
+                  
+                  return (
+                    <div
+                      key={signer.userId}
+                      className={`flex items-center gap-3 p-2 ${!isLastInList ? 'border-b border-gray-100' : ''}`}
+                    >
+                      <div className={`w-2 h-2 rounded-full ${
+                        signer.hasSigned 
+                          ? 'bg-green-500' 
+                          : isActive
+                          ? 'bg-yellow-500'
+                          : 'bg-gray-300'
+                      }`} />
+                      
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className={`text-sm ${
+                            isCurrentUser ? 'font-semibold text-blue-700' : 'text-gray-700'
+                          }`}>
+                            {signer.user?.username || 'Unknown User'}
+                            {isCurrentUser && ' (You)'}
+                          </p>
+                          {signer.hasSigned && (
+                            <span className="px-1.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded-full">
+                              Signed
+                            </span>
+                          )}
+                          {!signer.hasSigned && isActive && (
+                            <span className="px-1.5 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
+                              Pending
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          {signer.user?.email || ''}
+                        </p>
+                      </div>
+                      
+                      {isCurrentUser && !signer.hasSigned && isActive && (
+                        <div className="shrink-0">
+                          <span className={`px-3 py-1.5 text-xs font-medium rounded-full ${
+                            isCurrentUserTurn 
+                              ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white' 
+                              : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {isCurrentUserTurn ? 'Your Turn Now' : 'Waiting in Step'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      
+      {/* Current Status */}
+      {currentUserSteps.length > 0 && (
+        <div className={`mt-4 p-3 rounded-lg border ${
+          isCurrentUserTurn 
+            ? 'border-blue-300 bg-blue-50' 
+            : 'border-gray-300 bg-gray-50'
+        }`}>
+          <div className="flex items-start gap-2">
+            {isCurrentUserTurn ? (
+              <AlertCircle className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+            ) : (
+              <Clock className="w-5 h-5 text-gray-600 shrink-0 mt-0.5" />
+            )}
+            <div>
+              <p className={`text-sm font-medium ${
+                isCurrentUserTurn ? 'text-blue-800' : 'text-gray-700'
+              }`}>
+                {isCurrentUserTurn 
+                  ? "It's your turn to sign the document!"
+                  : "Waiting for your turn to sign."}
+              </p>
+              
+              {isCurrentUserTurn && (
+                <p className="text-xs text-blue-700 mt-1">
+                  You are in Step {currentUserSteps[0].step}. 
+                  {currentActiveStep && stepsMap.get(currentActiveStep[0])?.length! > 1 && 
+                    " You can sign in parallel with other signers in this step."}
+                </p>
+              )}
+              
+              {!isCurrentUserTurn && currentActiveStep && (
+                <p className="text-xs text-gray-600 mt-1">
+                  Currently at Step {currentActiveStep[0]}. {currentActiveStep[1].length > 1 
+                    ? `${currentActiveStep[1].filter(s => !s.hasSigned).length} of ${currentActiveStep[1].length} signers remaining in this step.`
+                    : `${currentActiveStep[1][0]?.user?.username || 'Someone'} needs to sign first.`}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -194,8 +514,10 @@ import toast from 'react-hot-toast';
 import { useAuth } from '@/auth/useAuth';
 import UserPdfSigner from '@/user/UserPdfSigner';
 import { useDocWebSocket } from '@/hooks/useDocWebSocket';
+import axios from 'axios';
 
 const UploadManager: React.FC = () => {
+  const [signingOrderDialogOpen, setSigningOrderDialogOpen] = useState(false);
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -230,6 +552,11 @@ const UploadManager: React.FC = () => {
   const [filteredShareUsers, setFilteredShareUsers] = useState<UserType[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [signerSteps, setSignerSteps] = useState<SignerStep[]>([]);
+  const [parallelGroups, setParallelGroups] = useState<Map<number, Set<string>>>(new Map());
+
+  // Separate selected users for view and sign
+  const [selectedViewUsers, setSelectedViewUsers] = useState<string[]>([]);
+  const [selectedSignUsers, setSelectedSignUsers] = useState<string[]>([]);
 
   // Sign dialog state
   const [signDocument, setSignDocument] = useState<PDFDocument | null>(null);
@@ -238,6 +565,12 @@ const UploadManager: React.FC = () => {
   // Shared users modal state
   const [sharedUsersDialogOpen, setSharedUsersDialogOpen] = useState(false);
   const [selectedDocumentForSharedUsers, setSelectedDocumentForSharedUsers] = useState<PDFDocument | null>(null);
+
+  // Unshare modal state
+  const [unshareDialogOpen, setUnshareDialogOpen] = useState(false);
+  const [selectedDocumentForUnshare, setSelectedDocumentForUnshare] = useState<PDFDocument | null>(null);
+  const [selectedUsersForUnshare, setSelectedUsersForUnshare] = useState<string[]>([]);
+  const [isUnsharing, setIsUnsharing] = useState(false);
 
   // Selection state
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
@@ -271,17 +604,14 @@ const UploadManager: React.FC = () => {
     const timeoutId = setTimeout(() => {
       setPagination(prev => ({ ...prev, currentPage: 1 }));
       loadDocuments();
-    }, 500); // 500ms debounce
+    }, 500);
 
     return () => clearTimeout(timeoutId);
   }, [searchQuery]);
 
   const loadDocuments = async () => {
     try {
-      console.log('🔄 Loading documents for user:', user);
-    
       if (!user?.id) {
-        console.log('❌ No user ID available');
         toast.error('Please log in first');
         return;
       }
@@ -293,18 +623,61 @@ const UploadManager: React.FC = () => {
         user_id: user?.id,
         user_roles: user?.roles,
         search: searchQuery.trim() || undefined,
+        include_signer_steps: true,
       };
 
-      const response = await api.get("v1/documents/uploaded", {params})
-      const data = response.data
-      setDocuments(data.data)
+      const response = await api.get("v1/documents/uploaded", {params});
+      const data = response.data;
+      
+      // Transform the data based on new DTO structure
+      const documentsWithSteps = data.data.map((doc: any) => ({
+        ...doc,
+        id: doc.id?.toString() || '',
+        fileName: doc.fileName || '',
+        filePath: doc.filePath || '',
+        fileType: doc.fileType || '',
+        fileSize: doc.fileSize?.toString() || '0',
+        status: doc.status || 'UPLOADED',
+        uploadedAt: doc.uploadedAt || new Date().toISOString(),
+        ownerDetails: doc.ownerDetails ? {
+          id: doc.ownerDetails.id?.toString() || '',
+          username: doc.ownerDetails.username || '',
+          email: doc.ownerDetails.email || ''
+        } : undefined,
+        // Map signerSteps from DTO
+        signerSteps: (doc.signerSteps || []).map((step: any) => ({
+          step: step.step || 1,
+          userId: step.userId?.toString() || step.user?.id?.toString() || '',
+          user: step.user ? {
+            id: step.user.id?.toString() || '',
+            username: step.user.username || '',
+            email: step.user.email || ''
+          } : undefined,
+          hasSigned: step.hasSigned || false,
+          parallel: step.parallel || false,
+          permission: step.permission || 'view_and_sign'
+        })),
+        // Map sharedToUsers from signerSteps
+        sharedToUsers: (doc.signerSteps || []).map((step: any) => ({
+          id: step.userId?.toString() || step.user?.id?.toString() || '',
+          username: step.user?.username || '',
+          email: step.user?.email || '',
+          permission: step.permission || 'view_and_sign',
+          step: step.step || 1,
+          hasSigned: step.hasSigned || false
+        })),
+        availableForSigning: doc.availableForSigning || false,
+        availableForViewing: doc.availableForViewing || true
+      }));
+      
+      setDocuments(documentsWithSteps);
       setPagination(prev => ({
         ...prev,
-        totalItems: data.pagination.totalItems ?? 0,
-        totalPages: data.pagination.totalPages ?? 1,
-      }))
+        totalItems: data.pagination?.totalItems || data.totalItems || 0,
+        totalPages: data.pagination?.totalPages || data.totalPages || 1,
+      }));
     } catch (error) {
-      toast.error(`Error fetching: ${error}`)
+      toast.error(`Error fetching: ${error}`);
     }
   };
 
@@ -339,45 +712,72 @@ const UploadManager: React.FC = () => {
 
   // Update signer steps when users are selected/deselected
   useEffect(() => {
+    // Combine selected users from both sections
+    const allSelectedUsers = [...selectedViewUsers, ...selectedSignUsers];
+    setSelectedUsersForShare(allSelectedUsers);
+
     if (sharePermission === 'view_and_sign') {
-      // Remove users that are no longer selected
-      const updatedSteps = signerSteps.filter(step => 
-        selectedUsersForShare.includes(step.userId)
-      );
-
-      // Find new users that aren't in signerSteps
-      const existingUserIds = updatedSteps.map(step => step.userId);
-      const newUserIds = selectedUsersForShare.filter(
-        userId => !existingUserIds.includes(userId)
-      );
+      const existingStepsMap = new Map(signerSteps.map(step => [step.userId, step]));
       
-      // Add new users with proper user data
-      newUserIds.forEach((userId) => {
+      const newSteps: SignerStep[] = [];
+      
+      selectedSignUsers.forEach((userId, index) => {
+        const existingStep = existingStepsMap.get(userId);
         const userData = availableUsers.find(u => u.id === userId);
-        updatedSteps.push({
-          step: 0, // Temporary, will be renumbered
-          userId,
-          user: userData
-        });
+        
+        if (existingStep) {
+          newSteps.push({
+            ...existingStep,
+            user: userData || existingStep.user
+          });
+        } else {
+          newSteps.push({
+            step: index + 1,
+            userId,
+            user: userData,
+            hasSigned: false,
+            parallel: false,
+            permission: 'view_and_sign'
+          });
+        }
       });
-
-      // Re-number all steps sequentially to ensure uniqueness
-      const finalSteps = updatedSteps.map((step, index) => ({
-        ...step,
-        step: index + 1
-      }));
-
-      // Only update if there's actually a change
+      
+      parallelGroups.forEach((userIds, stepNumber) => {
+        const allSelected = Array.from(userIds).every(userId => 
+          selectedSignUsers.includes(userId)
+        );
+        
+        if (allSelected && userIds.size > 1) {
+          newSteps.forEach(step => {
+            if (userIds.has(step.userId)) {
+              step.parallel = true;
+            }
+          });
+        }
+      });
+      
+      const finalSteps = renumberStepsWithParallel(newSteps);
+      const newParallelGroups = new Map<number, Set<string>>();
+      finalSteps.forEach(step => {
+        if (step.parallel) {
+          if (!newParallelGroups.has(step.step)) {
+            newParallelGroups.set(step.step, new Set());
+          }
+          newParallelGroups.get(step.step)!.add(step.userId);
+        }
+      });
+      
       if (JSON.stringify(finalSteps) !== JSON.stringify(signerSteps)) {
         setSignerSteps(finalSteps);
+        setParallelGroups(newParallelGroups);
       }
     } else {
-      // Clear steps when not in view_and_sign mode
       if (signerSteps.length > 0) {
         setSignerSteps([]);
+        setParallelGroups(new Map());
       }
     }
-  }, [selectedUsersForShare, sharePermission, availableUsers]);
+  }, [selectedViewUsers, selectedSignUsers, sharePermission, availableUsers]);
 
   const loadAvailableUsersForSharing = async (doc: PDFDocument) => {
     setIsLoadingUsers(true);
@@ -406,7 +806,9 @@ const UploadManager: React.FC = () => {
       }
 
       const transformedUsers = allUsers.map(user => ({
-        ...user,
+        id: user.id?.toString() || '',
+        username: user.username || '',
+        email: user.email || '',
         roles: user.roles?.map((role: any) => role.name || role) || []
       }));
 
@@ -435,25 +837,59 @@ const UploadManager: React.FC = () => {
 
     try {
       if (!user?.id) {
-        toast.error("No user id found")
+        toast.error("No user id found");
         return;
       }
 
-      const formData = new FormData()
-      formData.append("file", toUploadFile)
+      const formData = new FormData();
+      formData.append("file", toUploadFile);
 
       const response = await api.post(`v1/documents/upload/${user.id}`, formData, {
         headers: {
-          "Content-Type":"multipart/form-data"
+          "Content-Type": "multipart/form-data"
         }
-      })
-      const data = response.data
-      toast.success(`${toUploadFile.name} has been uploaded`)
-      setDocuments([data, ...documents]);
+      });
+      
+      const data = response.data;
+      
+      // Transform the uploaded document to match our interface
+      const uploadedDoc: PDFDocument = {
+        id: data.id?.toString() || '',
+        fileName: data.fileName || toUploadFile.name,
+        filePath: data.filePath || '',
+        fileType: data.fileType || 'application/pdf',
+        fileSize: data.fileSize?.toString() || toUploadFile.size.toString(),
+        status: data.status || 'UPLOADED',
+        uploadedAt: data.uploadedAt || new Date().toISOString(),
+        ownerDetails: data.ownerDetails ? {
+          id: data.ownerDetails.id?.toString() || user.id.toString(),
+          username: data.ownerDetails.username || user.username || '',
+          email: data.ownerDetails.email || user.email || ''
+        } : undefined,
+        signerSteps: [],
+        sharedToUsers: [],
+        availableForSigning: data.availableForSigning || false,
+        availableForViewing: data.availableForViewing || true,
+        comment: ''
+      };
+      
+      toast.success(`${toUploadFile.name} has been uploaded`);
+      setDocuments([uploadedDoc, ...documents]);
       setUploadDialogOpen(false);
       resetUploadForm();
     } catch (error) {
-      toast.error(`Upload failed: ${error}`)
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const data = error.response?.data;
+
+        if (status === 409 && data?.error === "DUPLICATE_FILE") {
+          toast.error("This file already exists");
+        } else {
+          toast.error(data?.message || "Upload failed");
+        }
+      } else {
+        toast.error("Unexpected error occurred");
+      }
     } finally {
       setIsUploading(false);
     }
@@ -463,12 +899,11 @@ const UploadManager: React.FC = () => {
     if (!selectedDocument) return;
 
     try {
-      const userId = user?.id ?? ''
-      await api.delete(`v1/documents/${selectedDocument.id}`, { params: { user_id: userId } })
+      await api.patch(`v1/documents/${selectedDocument.id}`);
       setDocuments(documents.filter(doc => doc.id !== selectedDocument.id));
       setDeleteDialogOpen(false);
       setSelectedDocument(null);
-      toast.success(`${selectedDocument.fileName} has been deleted`)
+      toast.success(`${selectedDocument.fileName} has been deleted`);
     } catch (error) {
       console.error('Delete error:', error);
       toast.error('Failed to delete document');
@@ -487,17 +922,59 @@ const UploadManager: React.FC = () => {
   const openShareDialog = async (doc: PDFDocument) => {
     setSelectedDocumentForShare(doc);
     setSelectedUsersForShare([]);
+    setSelectedViewUsers([]);
+    setSelectedSignUsers([]);
     setShareMessage('');
     setSharePermission('view');
     setIsShareDownloadable(true);
     setShareSearchQuery('');
     setSignerSteps([]);
+    setParallelGroups(new Map());
     
     await loadAvailableUsersForSharing(doc);
     setShareDialogOpen(true);
   };
 
   const openSignDialog = (doc: PDFDocument) => {
+    if (doc.signerSteps && doc.signerSteps.length > 0) {
+      const userSteps = doc.signerSteps.filter(step => step.user?.id === user?.id);
+      const activeStep = doc.signerSteps.find(step => !step.hasSigned)?.step;
+      
+      if (userSteps.length > 0) {
+        const userStepNumber = userSteps[0].step;
+        const isUserStepActive = activeStep === userStepNumber;
+        const isUserSigned = userSteps.every(step => step.hasSigned);
+        
+        if (!isUserStepActive && !isUserSigned) {
+          const stepsBeforeUser = doc.signerSteps
+            .filter(step => step.step < userStepNumber && !step.hasSigned);
+          
+          if (stepsBeforeUser.length > 0) {
+            const stepGroups = new Map<number, SignerStep[]>();
+            doc.signerSteps.forEach(step => {
+              if (!stepGroups.has(step.step)) {
+                stepGroups.set(step.step, []);
+              }
+              stepGroups.get(step.step)!.push(step);
+            });
+            
+            const firstPendingStep = stepsBeforeUser[0].step;
+            const pendingSigners = stepGroups.get(firstPendingStep) || [];
+            const pendingNames = pendingSigners
+              .filter(s => !s.hasSigned)
+              .map(s => s.user?.username)
+              .filter(Boolean)
+              .join(', ');
+            
+            toast.error(
+              `It's not your turn yet. ${pendingNames || 'Other signers'} need to sign Step ${firstPendingStep} first.`
+            );
+            return;
+          }
+        }
+      }
+    }
+    
     handleBlockOthersForSigning(doc);
     setSignDocument(doc);
     setSignDialogOpen(true);
@@ -508,64 +985,103 @@ const UploadManager: React.FC = () => {
     setSharedUsersDialogOpen(true);
   };
 
+  const openUnshareDialog = (doc: PDFDocument) => {
+    setSelectedDocumentForUnshare(doc);
+    setSelectedUsersForUnshare([]);
+    setUnshareDialogOpen(true);
+  };
+
   const handleShare = async () => {
     if (!selectedDocumentForShare || selectedUsersForShare.length === 0) return;
 
-    // Build the steps array for the payload
-    const steps = sharePermission === 'view_and_sign' 
-      ? signerSteps.map(step => ({
-          step: step.step,
-          user: {
-            id: step.userId,
-            username: step.user?.username || '',
-            email: step.user?.email || ''
-          }
-        }))
-      : [];
+    // Prepare view users
+    const viewUsers = selectedViewUsers.map(userId => ({
+      userId,
+      permission: 'view' as const
+    }));
+
+    // Prepare sign users with steps
+    const signUsers = signerSteps.map(step => ({
+      userId: step.userId,
+      step: step.step,
+      parallel: step.parallel || false,
+      permission: 'view_and_sign' as const
+    }));
+
+    const allUsers = [...viewUsers, ...signUsers];
 
     setIsSharing(true);
     try {
-      await api.post('v2/documents/share', {
-        document_id: selectedDocumentForShare.id,
-        user_ids: selectedUsersForShare,
+      const response = await api.post('v2/documents/share', {
+        documentId: selectedDocumentForShare.id,
+        users: allUsers, // Changed from user_ids to users array with permission
         message: shareMessage,
-        downloadable: isShareDownloadable,
-        permission: sharePermission,
-        steps: steps
+        downloadable: isShareDownloadable
       });
 
       toast.success(`Document shared with ${selectedUsersForShare.length} user(s)`);
 
-      // Update the local state
+      // Update local state with the response data
+      const sharedDoc = response.data;
+      
+      // Get existing shared users from the current document
+      const existingSharedUsers = selectedDocumentForShare.sharedToUsers || [];
+      
+      // Transform the response to match our interface
+      const updatedDoc: PDFDocument = {
+        ...selectedDocumentForShare,
+        status: 'SHARED',
+        signerSteps: (sharedDoc.signerSteps || []).map((step: any) => ({
+          step: step.step || 1,
+          userId: step.userId?.toString() || step.user?.id?.toString() || '',
+          user: step.user ? {
+            id: step.user.id?.toString() || '',
+            username: step.user.username || '',
+            email: step.user.email || ''
+          } : undefined,
+          hasSigned: step.hasSigned || false,
+          parallel: step.parallel || false,
+          permission: step.permission || 'view_and_sign'
+        })),
+        // Combine existing shared users with newly shared users
+        sharedToUsers: [
+          // Keep existing users (filter out duplicates)
+          ...existingSharedUsers.filter(existingUser => 
+            !allUsers.some(newUser => newUser.userId === existingUser.id)
+          ),
+          // Add newly shared users
+          ...allUsers.map(user => {
+            const userData = availableUsers.find(u => u.id === user.userId);
+            return {
+              id: user.userId,
+              username: userData?.username || '',
+              email: userData?.email || '',
+              permission: user.permission,
+              step: user.permission === 'view_and_sign' ? (user as any).step : undefined,
+              hasSigned: false
+            };
+          })
+        ],
+        availableForSigning: sharedDoc.availableForSigning || false,
+        availableForViewing: sharedDoc.availableForViewing || true
+      };
+
       setDocuments(prev =>
         prev.map(doc =>
-          doc.id === selectedDocumentForShare.id
-            ? {
-              ...doc,
-              status: 'SHARED',
-              sharedToUsers: [
-                ...(doc.sharedToUsers || []),
-                ...availableUsers
-                  .filter(u => selectedUsersForShare.includes(u.id))
-                  .map(u => ({
-                    id: u.id,
-                    username: u.username,
-                    email: u.email
-                  }))
-              ]
-            }
-            : doc
+          doc.id === selectedDocumentForShare.id ? updatedDoc : doc
         )
       );
       
-      // Close the modal and reset state
       setShareDialogOpen(false);
       setSelectedUsersForShare([]);
+      setSelectedViewUsers([]);
+      setSelectedSignUsers([]);
       setShareMessage('');
       setSharePermission('view');
       setIsShareDownloadable(true);
       setShareSearchQuery('');
       setSignerSteps([]);
+      setParallelGroups(new Map());
       
     } catch (error) {
       console.error(error);
@@ -575,7 +1091,196 @@ const UploadManager: React.FC = () => {
     }
   };
 
-  // Signer hierarchy functions
+  const canUserSignDocument = (doc: PDFDocument, currentUserId?: string): boolean => {
+    // 1. Document must be available for signing
+    if (!doc.availableForSigning) return false;
+    
+    // 2. If document has shared users but status is UPLOADED, cannot sign
+    if (doc.sharedToUsers && doc.sharedToUsers.length > 0 && doc.status === 'UPLOADED') {
+      return false;
+    }
+    
+    // 3. If current user is the owner and there are no shared users, cannot sign
+    if (doc.ownerDetails?.id === currentUserId && (!doc.sharedToUsers || doc.sharedToUsers.length === 0)) {
+      return false;
+    }
+    
+    // 4. Additional check: Document must have signer steps if it's meant for signing
+    if (doc.signerSteps && doc.signerSteps.length === 0 && doc.sharedToUsers && doc.sharedToUsers.length > 0) {
+      return false;
+    }
+    
+    // 5. NEW: Check if user is owner, document status is UPLOAD, and not shared
+    const isOwner = doc.ownerDetails?.id === currentUserId;
+    const isUploadStatus = doc.status === 'UPLOADED'; // Check if this matches your actual status
+    const isNotShared = !doc.sharedToUsers || doc.sharedToUsers.length === 0;
+    
+    // Disable PenTool if user is owner, status is UPLOAD, and not shared
+    if (isOwner && isUploadStatus && isNotShared) {
+      return false;
+    }
+    
+    return true;
+  };
+
+
+  const getSignButtonTitle = (doc: PDFDocument, currentUserId?: string): string => {
+    if (!doc.availableForSigning) return "Document not available for signing";
+    
+    // Check if user is owner, document status is UPLOAD, and not shared
+    const isOwner = doc.ownerDetails?.id === currentUserId;
+    const isUploadStatus = doc.status === 'UPLOADED';
+    const isNotShared = !doc.sharedToUsers || doc.sharedToUsers.length === 0;
+    
+    if (isOwner && isUploadStatus && isNotShared) {
+      return "Cannot sign your own unshared document";
+    }
+    
+    if (doc.sharedToUsers && doc.sharedToUsers.length > 0 && doc.status === 'UPLOADED') {
+      return "Shared document is not ready for signing yet";
+    }
+    
+    if (doc.ownerDetails?.id === currentUserId && (!doc.sharedToUsers || doc.sharedToUsers.length === 0)) {
+      return "No users to sign yet";
+    }
+    
+    if (doc.signerSteps && doc.signerSteps.length === 0 && doc.sharedToUsers && doc.sharedToUsers.length > 0) {
+      return "No signing order configured";
+    }
+    
+    return "Sign document";
+  };
+
+  const handleUnshare = async () => {
+    if (!selectedDocumentForUnshare || selectedUsersForUnshare.length === 0) return;
+
+    setIsUnsharing(true);
+    try {
+      await api.post('v2/documents/unshare', {
+        documentId: Number(selectedDocumentForUnshare.id),
+        userIds: selectedUsersForUnshare.map(Number),
+        currentUserId: user?.id
+      });
+
+      toast.success(`Access removed for ${selectedUsersForUnshare.length} user(s)`);
+
+      // Update local state
+      setDocuments(prev =>
+        prev.map(doc => {
+          if (doc.id === selectedDocumentForUnshare.id) {
+            const updatedSharedToUsers = (doc.sharedToUsers || []).filter(
+              sharedUser => !selectedUsersForUnshare.includes(sharedUser.id)
+            );
+            
+            const updatedSignerSteps = (doc.signerSteps || []).filter(
+              step => !selectedUsersForUnshare.includes(step.userId)
+            );
+            
+            // Check if all users have been unshared
+            const hasNoSharedUsers = updatedSharedToUsers.length === 0;
+            
+            return {
+              ...doc,
+              sharedToUsers: updatedSharedToUsers,
+              signerSteps: updatedSignerSteps,
+              status: hasNoSharedUsers ? 'UPLOADED' : doc.status,
+              // If no shared users left, document should not be available for signing
+              availableForSigning: hasNoSharedUsers ? false : doc.availableForSigning
+            };
+          }
+          return doc;
+        })
+      );
+      
+      // Optionally refresh from server
+      loadDocuments();
+      
+      setUnshareDialogOpen(false);
+      setSelectedUsersForUnshare([]);
+      setSelectedDocumentForUnshare(null);
+      
+    } catch (error) {
+      console.error('Error unsharing:', error);
+      toast.error('Failed to remove access. Please try again.');
+    } finally {
+      setIsUnsharing(false);
+    }
+  };
+
+  const toggleUserForUnshareSelection = (userId: string) => {
+    setSelectedUsersForUnshare(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  const selectAllUsersForUnshare = () => {
+    if (!selectedDocumentForUnshare?.sharedToUsers) return;
+    
+    if (selectedUsersForUnshare.length === selectedDocumentForUnshare.sharedToUsers.length) {
+      setSelectedUsersForUnshare([]);
+    } else {
+      setSelectedUsersForUnshare(selectedDocumentForUnshare.sharedToUsers.map(user => user.id));
+    }
+  };
+
+  // Toggle user selection for view only
+  const toggleViewUserSelection = (userId: string) => {
+    // Don't allow selection if user is already in sign users
+    if (selectedSignUsers.includes(userId)) {
+      toast.error('This user is already selected for View & Sign access');
+      return;
+    }
+    
+    setSelectedViewUsers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  // Toggle user selection for view and sign
+  const toggleSignUserSelection = (userId: string) => {
+    // Don't allow selection if user is already in view users
+    if (selectedViewUsers.includes(userId)) {
+      toast.error('This user is already selected for View Only access');
+      return;
+    }
+    
+    setSelectedSignUsers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  // Select all users in view section
+  const selectAllViewUsers = () => {
+    if (selectedViewUsers.length === filteredShareUsers.length) {
+      setSelectedViewUsers([]);
+    } else {
+      // Only select users not in sign users
+      const availableUsers = filteredShareUsers
+        .filter(user => !selectedSignUsers.includes(user.id))
+        .map(user => user.id);
+      setSelectedViewUsers(availableUsers);
+    }
+  };
+
+  // Select all users in sign section
+  const selectAllSignUsers = () => {
+    if (selectedSignUsers.length === filteredShareUsers.length) {
+      setSelectedSignUsers([]);
+    } else {
+      // Only select users not in view users
+      const availableUsers = filteredShareUsers
+        .filter(user => !selectedViewUsers.includes(user.id))
+        .map(user => user.id);
+      setSelectedSignUsers(availableUsers);
+    }
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
@@ -586,12 +1291,43 @@ const UploadManager: React.FC = () => {
     const oldIndex = signerSteps.findIndex((step) => step.userId === active.id);
     const newIndex = signerSteps.findIndex((step) => step.userId === over.id);
 
-    const reorderedSteps = arrayMove(signerSteps, oldIndex, newIndex).map((step, index) => ({
-      ...step,
-      step: index + 1,
-    }));
+    const reorderedSteps = arrayMove(signerSteps, oldIndex, newIndex);
+    const finalSteps = renumberStepsWithParallel(reorderedSteps);
+    setSignerSteps(finalSteps);
+  };
 
-    setSignerSteps(reorderedSteps);
+  const renumberStepsWithParallel = (steps: SignerStep[]): SignerStep[] => {
+    const newSteps = [...steps];
+    let currentStep = 1;
+    let i = 0;
+    
+    while (i < newSteps.length) {
+      const currentSigner = newSteps[i];
+      const parallel = currentSigner.parallel;
+      
+      if (parallel) {
+        const parallelGroup: SignerStep[] = [currentSigner];
+        let j = i + 1;
+        
+        while (j < newSteps.length && newSteps[j].parallel) {
+          parallelGroup.push(newSteps[j]);
+          j++;
+        }
+        
+        parallelGroup.forEach(signer => {
+          signer.step = currentStep;
+        });
+        
+        i = j;
+        currentStep++;
+      } else {
+        currentSigner.step = currentStep;
+        i++;
+        currentStep++;
+      }
+    }
+    
+    return newSteps;
   };
 
   const moveSignerUp = (index: number) => {
@@ -602,12 +1338,7 @@ const UploadManager: React.FC = () => {
     newSteps[index - 1] = newSteps[index];
     newSteps[index] = temp;
     
-    // Re-number steps sequentially
-    const reorderedSteps = newSteps.map((step, idx) => ({
-      ...step,
-      step: idx + 1
-    }));
-    
+    const reorderedSteps = renumberStepsWithParallel(newSteps);
     setSignerSteps(reorderedSteps);
   };
 
@@ -619,23 +1350,45 @@ const UploadManager: React.FC = () => {
     newSteps[index + 1] = newSteps[index];
     newSteps[index] = temp;
     
-    // Re-number steps sequentially
-    const reorderedSteps = newSteps.map((step, idx) => ({
-      ...step,
-      step: idx + 1
-    }));
-    
+    const reorderedSteps = renumberStepsWithParallel(newSteps);
     setSignerSteps(reorderedSteps);
   };
 
-  // Documents are already filtered on the server
+  const toggleParallelSigning = (userId: string) => {
+    const updatedSteps = [...signerSteps];
+    const index = updatedSteps.findIndex(step => step.userId === userId);
+    
+    if (index !== -1) {
+      updatedSteps[index].parallel = !updatedSteps[index].parallel;
+      
+      const finalSteps = renumberStepsWithParallel(updatedSteps);
+      
+      const newParallelGroups = new Map<number, Set<string>>();
+      finalSteps.forEach(step => {
+        if (step.parallel) {
+          if (!newParallelGroups.has(step.step)) {
+            newParallelGroups.set(step.step, new Set());
+          }
+          newParallelGroups.get(step.step)!.add(step.userId);
+        }
+      });
+      
+      setSignerSteps(finalSteps);
+      setParallelGroups(newParallelGroups);
+    }
+  };
+
+  const getParallelGroup = (stepNumber: number): SignerStep[] => {
+    return signerSteps.filter(step => 
+      step.step === stepNumber && step.parallel
+    );
+  };
+
   const filteredDocuments = documents;
 
-  // Calculate pagination - using server-side pagination
   const totalPages = pagination.totalPages;
-  const paginatedDocuments = documents; // Already paginated from server
+  const paginatedDocuments = documents;
 
-  // Reset to page 1 when search query changes
   useEffect(() => {
     setPagination(prev => ({ ...prev, currentPage: 1 }));
     setSelectedItems([]);
@@ -684,7 +1437,7 @@ const UploadManager: React.FC = () => {
   };
 
   const formatFileSize = (fileSize: string) => {
-    const bytes = Number(fileSize)
+    const bytes = Number(fileSize);
     if (isNaN(bytes) || bytes < 0) return "—";
     if (bytes === 0) return "0 B";
 
@@ -694,7 +1447,6 @@ const UploadManager: React.FC = () => {
     return `${(bytes / 1024 ** i).toFixed(1)} ${units[i]}`;
   }
 
-  // Format date relative
   const formatRelativeDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -708,19 +1460,96 @@ const UploadManager: React.FC = () => {
     return date.toLocaleDateString();
   };
 
-  // Get status badge
-  const getStatusBadge = (doc: PDFDocument) => {
-    switch (doc.status) {
-      case 'pending_signature':
-        return (
-          <span className="px-2 py-1 text-xs text-center font-medium text-amber-600 bg-amber-50 rounded flex items-center gap-1">
-            Awaiting signature
+  const getStatusBadge = (doc: PDFDocument, totalSigners: number) => {
+
+      const signerSteps = doc.signerSteps?.filter(step => step.permission === 'view_and_sign') || [];
+    
+    // If there are no signers (only view-only users), show "Shared - View Only"
+    if (totalSigners === 0 && doc.sharedToUsers && doc.sharedToUsers.length > 0) {
+      const viewOnlyCount = doc.sharedToUsers.filter(user => user.permission === 'view').length;
+      return (
+        <div className="flex flex-col gap-1">
+          <span className="px-2 py-1 text-xs text-center font-medium text-blue-600 bg-blue-50 rounded">
+            Shared
           </span>
+          <span className="text-xs text-blue-500">
+            {viewOnlyCount} view-only user{viewOnlyCount !== 1 ? 's' : ''}
+          </span>
+        </div>
+      );
+    }
+    
+    // Only show signing status if there are actual signers (view_and_sign users)
+    if (totalSigners > 0) {
+      const completedSigners = signerSteps.filter(s => s.hasSigned).length;
+      const isFullySigned = completedSigners === totalSigners;
+      
+      // If not fully signed, show current step status
+      if (!isFullySigned) {
+        // Find the current active step (first step with any unsigned signers)
+        const stepsMap = new Map<number, SignerStep[]>();
+        signerSteps.forEach(step => {
+          if (!stepsMap.has(step.step)) {
+            stepsMap.set(step.step, []);
+          }
+          stepsMap.get(step.step)!.push(step);
+        });
+        
+        const sortedSteps = Array.from(stepsMap.entries()).sort(([a], [b]) => a - b);
+        const currentStep = sortedSteps.find(([_, signers]) => 
+          signers.some(signer => !signer.hasSigned)
         );
+        
+        if (currentStep) {
+          const [stepNumber, signers] = currentStep;
+          const completedInStep = signers.filter(s => s.hasSigned).length;
+          const totalInStep = signers.length;
+          const remainingSigners = totalInStep - completedInStep;
+          
+          return (
+            <div className="flex flex-col gap-1">
+              <span className="px-2 py-1 text-xs text-center font-medium text-amber-600 bg-amber-50 rounded">
+                Step {stepNumber} ({completedInStep}/{totalInStep})
+              </span>
+              <span className="text-xs text-amber-500">
+                {remainingSigners} signer{remainingSigners !== 1 ? 's' : ''} pending
+              </span>
+            </div>
+          );
+        }
+        
+        // If no current step found but not fully signed, show generic "Awaiting signatures"
+        return (
+          <div className="flex flex-col gap-1">
+            <span className="px-2 py-1 text-xs text-center font-medium text-amber-600 bg-amber-50 rounded">
+              Awaiting Signatures
+            </span>
+            <span className="text-xs text-amber-500">
+              {completedSigners}/{totalSigners} signed
+            </span>
+          </div>
+        );
+      }
+      
+      // All signers have signed
+      return (
+        <div className="flex flex-col gap-1">
+          <span className="px-2 py-1 text-xs text-center font-medium text-green-600 bg-green-50 rounded">
+            Fully Signed
+          </span>
+          <span className="text-xs text-green-500">
+            {totalSigners} of {totalSigners} completed
+          </span>
+        </div>
+      );
+    }
+    
+    // Fall back to basic document status (for documents not shared at all)
+    switch (doc.status) {
       case 'SIGNED':
         return (
           <div className="flex flex-col gap-1">
-            <span className="px-2 py-1 text-xs text-center font-medium text-green-600 bg-blue-50 rounded">
+            <span className="px-2 py-1 text-xs text-center font-medium text-green-600 bg-green-50 rounded">
               Signed
             </span>
           </div>
@@ -728,7 +1557,7 @@ const UploadManager: React.FC = () => {
       case 'UPLOADED':
         return (
           <div className="flex flex-col gap-1">
-            <span className="px-2 py-1 text-xs text-center font-medium text-purple-600 bg-blue-50 rounded">
+            <span className="px-2 py-1 text-xs text-center font-medium text-purple-600 bg-purple-50 rounded">
               Uploaded
             </span>
           </div>
@@ -741,20 +1570,18 @@ const UploadManager: React.FC = () => {
             </span>
           </div>
         );
-      case 'SIGNED_AND_SHARED':
+      default:
         return (
           <div className="flex flex-col gap-1">
-            <span className="px-2 py-1 text-xs text-center font-medium text-cyan-600 bg-blue-50 rounded">
-              Signed & Shared
+            <span className="px-2 py-1 text-xs text-center font-medium text-gray-600 bg-gray-50 rounded">
+              {doc.status || 'Unknown'}
             </span>
           </div>
         );
-      default:
-        return null;
     }
   };
 
-  // Toggle item selection
+
   const toggleItemSelection = (id: string) => {
     setSelectedItems(prev =>
       prev.includes(id)
@@ -763,7 +1590,6 @@ const UploadManager: React.FC = () => {
     );
   };
 
-  // Select all items on current page
   const selectAllOnPage = () => {
     if (selectedItems.length === paginatedDocuments.length) {
       setSelectedItems([]);
@@ -772,12 +1598,10 @@ const UploadManager: React.FC = () => {
     }
   };
 
-  // Clear selection
   const clearSelection = () => {
     setSelectedItems([]);
   };
 
-  // PDF document event handlers
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
   };
@@ -829,45 +1653,23 @@ const UploadManager: React.FC = () => {
 
   // =============================WEBSOCKET CODE=============================
   const handleDocUpdate = useCallback((updatedDoc: PDFDocument) => {
-    console.log('=================================================');
-    console.log('🔄 WebSocket handleDocUpdate called');
-    console.log('📦 Received update for document:', updatedDoc.id);
-    console.log('📝 File name:', updatedDoc.fileName);
-    console.log('🔓 Available for signing:', updatedDoc.availableForSigning);
-    console.log('📊 Status:', updatedDoc.status);
-    console.log('👤 Current user:', user?.id);
-    console.log('=================================================');
-    
     setDocuments(prevDocs => {
-      // Find the document that needs updating
       const docIndex = prevDocs.findIndex(doc => doc.id === updatedDoc.id);
       
       if (docIndex === -1) {
-        console.log(`⚠️ Document ${updatedDoc.id} not found in current list`);
-        console.log('📋 Current document IDs:', prevDocs.map(d => d.id));
         return prevDocs;
       }
 
-      // Create a new array to ensure React detects the change
       const newDocs = prevDocs.map((doc, idx) => {
         if (idx === docIndex) {
-          // Merge the updated document, ensuring critical fields are updated
           const merged = {
             ...doc,
             ...updatedDoc,
-            // Explicitly set these fields to ensure they update
             availableForSigning: updatedDoc.availableForSigning ?? doc.availableForSigning,
             availableForViewing: updatedDoc.availableForViewing ?? doc.availableForViewing,
             status: updatedDoc.status ?? doc.status,
+            signerSteps: updatedDoc.signerSteps || doc.signerSteps,
           };
-          
-          console.log('✅ Document merged successfully');
-          console.log('🔍 Final merged document:', {
-            id: merged.id,
-            fileName: merged.fileName,
-            availableForSigning: merged.availableForSigning,
-            status: merged.status
-          });
           
           return merged;
         }
@@ -878,19 +1680,17 @@ const UploadManager: React.FC = () => {
     });
   }, [user?.id]);
 
-  // Initialize WebSocket - wrapped in useMemo to prevent recreating the callback
   useDocWebSocket(handleDocUpdate);
 
   const handleBlockOthersForSigning = async (doc: PDFDocument) => {
     try {
       const params = {
         documentId: doc.id,
-        userId : user?.id
+        userId: user?.id
       }
 
       await api.post('v1/documents/locked-in', params);
-      // The websocket will handle the UI update for all users
-    } catch (error:unknown) {
+    } catch (error: unknown) {
       toast.error('Failed to lock document for signing.');
     }
   }
@@ -901,13 +1701,10 @@ const UploadManager: React.FC = () => {
         documentId: doc.id,
         userId: user?.id
       }
-      // Then make the API call
-      await api.post('v1/documents/locked-out', params);
-      // The websocket will broadcast the update to other users
-    } catch (error: unknown) {
-      console.error('❌ Failed to release document lock:', error);
       
-      // Revert the optimistic update on error
+      await api.post('v1/documents/locked-out', params);
+    } catch (error: unknown) {
+      console.error('Failed to release document lock:', error);
       setDocuments(prevDocs => 
         prevDocs.map(document => 
           document.id === doc.id 
@@ -915,24 +1712,40 @@ const UploadManager: React.FC = () => {
             : document
         )
       );
-      
       toast.error('Failed to release document lock.');
     }
   }
 
-  // ========================================================================
+  const handleDeleteMarked = async () => {
+    try {
+      await api.patch('v1/documents/marked-delete', null, {
+        params: {
+          documentIds: selectedItems
+        }
+      })
+
+      setDocuments(prevDocs =>
+        prevDocs.filter(doc => !selectedItems.includes(doc.id))
+      )
+
+      toast.success("Documents have been deleted.");
+      setSelectedItems([]);
+
+    } catch (error) {
+      console.log(error);
+      toast.error("Failed to delete documents.");
+    }
+  }
 
   return (
     <>
       <div className="relative min-h-screen bg-[#E7F2EF] p-8">
-        
         {/* Background image with blur */}
         <div className="absolute inset-0 bg-cover bg-center bg-no-repeat filter blur-md"
           style={{
             backgroundImage: `url(${import.meta.env.BASE_URL}background.jpg)`,
-            }}>
+          }}>
         </div>
-      {/* Optional dark overlay for better contrast */}
         <div className="absolute inset-0 bg-black/30"></div>
         
       <div className="relative max-w-[90rem] mx-auto">
@@ -941,10 +1754,10 @@ const UploadManager: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-[#A1C2BD] rounded-lg">
-                <File className="w-6 h-6 text-[#19183B]" />
+                <Files className="w-6 h-6 text-[#19183B]" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-[#19183B]">Uploads</h1>
+                <h1 className="text-3xl font-bold text-[#19183B]">My Documents</h1>
                 <p className="text-[#708993]">Upload, manage, and share your PDF documents</p>
               </div>
             </div>
@@ -988,7 +1801,10 @@ const UploadManager: React.FC = () => {
                 <button className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
                   <Download className="w-4 h-4" />
                 </button>
-                <button className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                <button 
+                className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                onClick={handleDeleteMarked}
+                >
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
@@ -1073,119 +1889,201 @@ const UploadManager: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {paginatedDocuments.map((doc) => (
-                      <tr
-                        key={doc.id}
-                        className={`hover:bg-gray-50 ${selectedItems.includes(doc.id) ? 'bg-blue-50' : ''}`}
-                      >
-                        <td className="px-6 py-4">
-                          <Checkbox.Root
-                            checked={selectedItems.includes(doc.id)}
-                            onCheckedChange={() => toggleItemSelection(doc.id)}
-                            className="w-4 h-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
-                          >
-                            <Checkbox.Indicator>
-                              <Check className="w-3 h-3 text-white" />
-                            </Checkbox.Indicator>
-                          </Checkbox.Root>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded flex items-center justify-center bg-blue-50">
-                              <FileText className="w-5 h-5 text-[#779370]" />
+                  {paginatedDocuments.map((doc) => {
+                    // Calculate signing progress - only count view_and_sign users, filter out view-only
+                    const signerSteps = doc.signerSteps?.filter(step => step.permission === 'view_and_sign') || [];
+                    const totalSigners = signerSteps.length;
+                    const completedSigners = signerSteps.filter(s => s.hasSigned).length;
+                    const hasParallelSigning = signerSteps.some(s => s.parallel);
+                    
+                    // Count view-only users
+                    const viewOnlyUsers = doc.sharedToUsers?.filter(user => user.permission === 'view') || [];
+                    const totalViewOnly = viewOnlyUsers.length;
+                    
+                    // Calculate total shared users
+                    const totalSharedUsers = doc.sharedToUsers?.length || 0;
+                                        
+                      return (
+                        <tr
+                          key={doc.id}
+                          className={`hover:bg-gray-50 ${selectedItems.includes(doc.id) ? 'bg-blue-50' : ''}`}
+                        >
+                          <td className="px-6 py-4">
+                            <Checkbox.Root
+                              checked={selectedItems.includes(doc.id)}
+                              onCheckedChange={() => toggleItemSelection(doc.id)}
+                              className="w-4 h-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                            >
+                              <Checkbox.Indicator>
+                                <Check className="w-3 h-3 text-white" />
+                              </Checkbox.Indicator>
+                            </Checkbox.Root>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded flex items-center justify-center bg-blue-50">
+                                <FileText className="w-5 h-5 text-[#779370]" />
+                              </div>
+                              <div>
+                                <div className="font-medium text-gray-900">{doc.fileName}</div>
+                                <div className="text-sm text-gray-500">PDF document</div>
+                                
+                                {/* Show sharing summary */}
+                                {(totalViewOnly > 0 || totalSigners > 0) && (
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <Users className="w-3 h-3 text-gray-400" />
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-xs text-gray-600">
+                                        Shared with {totalSharedUsers} user{totalSharedUsers !== 1 ? 's' : ''}
+                                        {totalViewOnly > 0 && totalSigners > 0 && (
+                                          <span className="text-gray-600 ml-1">
+                                            ({totalViewOnly} view only, {totalSigners} signers)
+                                          </span>
+                                        )}
+                                        {totalViewOnly > 0 && totalSigners === 0 && (
+                                          <span className="text-green-600 ml-1">
+                                            ({totalViewOnly} view only)
+                                          </span>
+                                        )}
+                                        {totalViewOnly === 0 && totalSigners > 0 && (
+                                          <span className="text-purple-600 ml-1">
+                                            ({totalSigners} signers)
+                                          </span>
+                                        )}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {/* Show signing progress if there are signers */}
+                                {totalSigners > 0 && doc.availableForSigning && (
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <ListOrdered className="w-3 h-3 text-purple-500" />
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-xs text-purple-600">
+                                        {completedSigners}/{totalSigners} signed
+                                      </span>
+                                      {hasParallelSigning && (
+                                        <span className="text-xs text-blue-600 flex items-center gap-0.5">
+                                          <UsersIcon className="w-3 h-3" />
+                                          Parallel
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <div>
-                              <div className="font-medium text-gray-900">{doc.fileName}</div>
-                              <div className="text-sm text-gray-500">PDF document</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            {doc.sharedToUsers && doc.sharedToUsers.length > 0 ? (
-                              <button
-                                onClick={() => openSharedUsersDialog(doc)}
-                                className="flex items-center gap-2 hover:bg-gray-100 px-2 py-1 rounded transition-colors"
-                              >
-                                <Users className="w-4 h-4 text-gray-400" />
-                                <span className="text-sm text-gray-700 hover:text-blue-600">{doc.sharedToUsers.length} people</span>
-                              </button>
-                            ) : (
-                              <span className="text-sm text-gray-400">—</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col gap-1">
-                            {getStatusBadge(doc)}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-700">
-                          {formatFileSize(doc.fileSize)}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="text-sm text-gray-700">{formatRelativeDate(doc.uploadedAt)}</div>
-                          <div className="text-xs text-gray-400">
-                            {new Date(doc.uploadedAt).toLocaleDateString()}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => handleView(doc)}
-                              className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="View"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDownload(doc)}
-                              className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                              title="Download"
-                            >
-                              <Download className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => openSignDialog(doc)}
-                              className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Sign document"
-                            >
-                              <PenTool className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => openShareDialog(doc)}
-                              className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Share with others"
-                            >
-                              <Share2 className="w-4 h-4" />
-                            </button>
-                            
-                            <DropdownMenu.Root>
-                              <DropdownMenu.Trigger asChild>
-                                <button className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                                  <MoreVertical className="w-4 h-4" />
-                                </button>
-                              </DropdownMenu.Trigger>
-                              <DropdownMenu.Portal>
-                                <DropdownMenu.Content 
-                                  align="end"
-                                  sideOffset={5}
-                                  className="min-w-[160px] bg-white rounded-lg shadow-lg border border-gray-200 p-1 z-50"
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              {totalSharedUsers > 0 ? (
+                                <button
+                                  onClick={() => openSharedUsersDialog(doc)}
+                                  className="flex items-center gap-2 hover:bg-gray-100 px-2 py-1 rounded transition-colors"
                                 >
-                                  <DropdownMenu.Item 
-                                    className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded cursor-pointer outline-none"
-                                    onClick={() => openDeleteDialog(doc)}
+                                  <Users className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm text-gray-700 hover:text-blue-600">
+                                    {totalSharedUsers} people
+                                    {totalSigners > 0 && (
+                                      <span className="ml-1 text-xs text-purple-600">
+                                        ({totalSigners} signers)
+                                      </span>
+                                    )}
+                                  </span>
+                                </button>
+                              ) : (
+                                <span className="text-sm text-gray-400">—</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col gap-1">
+                              {getStatusBadge(doc, totalSigners)}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-700">
+                            {formatFileSize(doc.fileSize)}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="text-sm text-gray-700">{formatRelativeDate(doc.uploadedAt)}</div>
+                            <div className="text-xs text-gray-400">
+                              {new Date(doc.uploadedAt).toLocaleDateString()}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => handleView(doc)}
+                                className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="View"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDownload(doc)}
+                                className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                title="Download"
+                              >
+                                <Download className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => openSignDialog(doc)}
+                                disabled={!canUserSignDocument(doc, user?.id)}
+                                className={`p-2 rounded-lg transition-colors ${
+                                  canUserSignDocument(doc, user?.id)
+                                    ? 'text-gray-500 hover:text-blue-600 hover:bg-blue-50'
+                                    : 'text-gray-300 cursor-not-allowed'
+                                }`}
+                                title={getSignButtonTitle(doc, user?.id)}
+                              >
+                                <PenTool className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => openShareDialog(doc)}
+                                className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Share with others"
+                              >
+                                <Share2 className="w-4 h-4" />
+                              </button>
+                              
+                              <DropdownMenu.Root>
+                                <DropdownMenu.Trigger asChild>
+                                  <button className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                                    <MoreVertical className="w-4 h-4" />
+                                  </button>
+                                </DropdownMenu.Trigger>
+                                <DropdownMenu.Portal>
+                                  <DropdownMenu.Content 
+                                    align="end"
+                                    sideOffset={5}
+                                    className="min-w-[160px] bg-white rounded-lg shadow-lg border border-gray-200 p-1 z-50"
                                   >
-                                    <Trash2 className="w-4 h-4" />
-                                    Delete
-                                  </DropdownMenu.Item>
-                                </DropdownMenu.Content>
-                              </DropdownMenu.Portal>
-                            </DropdownMenu.Root>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                                    {totalSharedUsers > 0 ? (
+                                      <DropdownMenu.Item 
+                                        className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded cursor-pointer outline-none"
+                                        onClick={() => openUnshareDialog(doc)}
+                                      >
+                                        <UserX className="w-4 h-4" />
+                                        Unshare
+                                      </DropdownMenu.Item>
+                                    ):(
+                                      <DropdownMenu.Item 
+                                        className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded cursor-pointer outline-none"
+                                        onClick={() => openDeleteDialog(doc)}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                        Delete
+                                      </DropdownMenu.Item>
+                                    )}
+                                  </DropdownMenu.Content>
+                                </DropdownMenu.Portal>
+                              </DropdownMenu.Root>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1518,7 +2416,7 @@ const UploadManager: React.FC = () => {
         </Dialog.Portal>
       </Dialog.Root>
       
-      {/* Share Dialog - Updated with Signer Hierarchy */}
+      {/* Share Dialog - Updated with Tabs */}
       <Dialog.Root open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" />
@@ -1537,11 +2435,14 @@ const UploadManager: React.FC = () => {
                     setShareDialogOpen(false);
                     setSelectedDocumentForShare(null);
                     setSelectedUsersForShare([]);
+                    setSelectedViewUsers([]);
+                    setSelectedSignUsers([]);
                     setShareMessage('');
                     setSharePermission('view');
                     setIsShareDownloadable(true);
                     setShareSearchQuery('');
                     setSignerSteps([]);
+                    setParallelGroups(new Map());
                   }}
                   className="p-2 hover:bg-[#E7F2EF] rounded-lg transition-colors"
                 >
@@ -1555,8 +2456,11 @@ const UploadManager: React.FC = () => {
                 </p>
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 mt-2">
                   <p className="text-sm text-blue-800">
-                    Selected users will have {sharePermission === 'view' ? 'view-only access' : 'view and sign access'} 
-                    {sharePermission === 'view_and_sign' && isShareDownloadable ? ' with download capability' : ''}.
+                    Select users for "View Only" or "View & Sign" access using the tabs below.
+                    {isShareDownloadable ? ' Download is enabled for all users.' : ' Download is disabled.'}
+                  </p>
+                  <p className="text-xs text-blue-700 mt-1">
+                    💡 "View & Sign" users can be arranged in a signing order with parallel signing support.
                   </p>
                 </div>
               </div>
@@ -1579,126 +2483,79 @@ const UploadManager: React.FC = () => {
                   />
                 </div>
 
-                {/* Permission type selection */}
+                {/* Download permission toggle */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Permission Level
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center gap-2">
+                      {isShareDownloadable ? (
+                        <Unlock className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <Lock className="w-4 h-4 text-gray-600" />
+                      )}
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Allow downloading</p>
+                        <p className="text-xs text-gray-500">
+                          {isShareDownloadable 
+                            ? 'Recipients can download this document' 
+                            : 'Download is disabled for recipients'}
+                        </p>
+                      </div>
+                    </div>
                     <button
-                      type="button"
-                      onClick={() => {
-                        setSharePermission('view');
-                        setIsShareDownloadable(false);
-                        setSignerSteps([]);
-                      }}
-                      className={`p-3 rounded-lg border transition-all ${
-                        sharePermission === 'view'
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-300 hover:border-gray-400'
+                      onClick={() => setIsShareDownloadable(!isShareDownloadable)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                        isShareDownloadable ? 'bg-green-500' : 'bg-gray-300'
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <div className={`p-1.5 rounded ${
-                          sharePermission === 'view' ? 'bg-blue-100' : 'bg-gray-100'
-                        }`}>
-                          <Eye className={`w-4 h-4 ${
-                            sharePermission === 'view' ? 'text-blue-600' : 'text-gray-600'
-                          }`} />
-                        </div>
-                        <div className="text-left">
-                          <p className={`text-sm font-semibold ${
-                            sharePermission === 'view' ? 'text-blue-700' : 'text-gray-700'
-                          }`}>
-                            View Only
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            View document only
-                          </p>
-                        </div>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSharePermission('view_and_sign');
-                        setIsShareDownloadable(true);
-                      }}
-                      className={`p-3 rounded-lg border transition-all ${
-                        sharePermission === 'view_and_sign'
-                          ? 'border-purple-500 bg-purple-50'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className={`p-1.5 rounded ${
-                          sharePermission === 'view_and_sign' ? 'bg-purple-100' : 'bg-gray-100'
-                        }`}>
-                          <PenTool className={`w-4 h-4 ${
-                            sharePermission === 'view_and_sign' ? 'text-purple-600' : 'text-gray-600'
-                          }`} />
-                        </div>
-                        <div className="text-left">
-                          <p className={`text-sm font-semibold ${
-                            sharePermission === 'view_and_sign' ? 'text-purple-700' : 'text-gray-700'
-                          }`}>
-                            View & Sign
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            View, download & sign
-                          </p>
-                        </div>
-                      </div>
+                      <span
+                        className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                          isShareDownloadable ? 'translate-x-4' : 'translate-x-1'
+                        }`}
+                      />
                     </button>
                   </div>
-                  
-                  <p className="text-xs text-gray-500 mt-2">
-                    {sharePermission === 'view' 
-                      ? 'Recipients can only view this document. Download is disabled.' 
-                      : 'Recipients can view, download, and add electronic signatures.'}
-                  </p>
                 </div>
 
-                {/* Download permission toggle */}
-                {sharePermission === 'view_and_sign' && (
-                  <div>
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                      <div className="flex items-center gap-2">
-                        {isShareDownloadable ? (
-                          <Unlock className="w-4 h-4 text-green-600" />
-                        ) : (
-                          <Lock className="w-4 h-4 text-gray-600" />
-                        )}
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">Allow downloading</p>
-                          <p className="text-xs text-gray-500">
-                            {isShareDownloadable 
-                              ? 'Recipients can download this document' 
-                              : 'Download is disabled for recipients'}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => setIsShareDownloadable(!isShareDownloadable)}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                          isShareDownloadable ? 'bg-green-500' : 'bg-gray-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                            isShareDownloadable ? 'translate-x-4' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* User Selection Section */}
+                {/* Tabs for View Only and View & Sign */}
                 <div className="border-t pt-5">
                   <h3 className="text-sm font-semibold text-gray-900 mb-3">Select Recipients</h3>
                   
+                  {/* Tab Headers */}
+                  <div className="flex gap-2 mb-4 border-b border-gray-200">
+                    <button
+                      onClick={() => setSharePermission('view')}
+                      className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors border-b-2 ${
+                        sharePermission === 'view'
+                          ? 'border-green-500 text-green-700 bg-green-50'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <Eye className="w-4 h-4" />
+                      View Only
+                      {selectedViewUsers.length > 0 && (
+                        <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full">
+                          {selectedViewUsers.length}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setSharePermission('view_and_sign')}
+                      className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors border-b-2 ${
+                        sharePermission === 'view_and_sign'
+                          ? 'border-purple-500 text-purple-700 bg-purple-50'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <PenTool className="w-4 h-4" />
+                      View & Sign
+                      {selectedSignUsers.length > 0 && (
+                        <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded-full">
+                          {selectedSignUsers.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+
                   {/* Search input */}
                   <div className="mb-4">
                     <div className="relative">
@@ -1721,135 +2578,267 @@ const UploadManager: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Select All */}
-                  <div className="mb-3 p-2 bg-gray-50 rounded-lg border border-gray-200">
-                    <div className="flex items-center gap-2">
-                      <Checkbox.Root
-                        id="select-all-share"
-                        checked={selectedUsersForShare.length === filteredShareUsers.length && filteredShareUsers.length > 0}
-                        onCheckedChange={selectAllUsersForShare}
-                        className="w-4 h-4 bg-white border border-blue-500 rounded flex items-center justify-center data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-                      >
-                        <Checkbox.Indicator>
-                          <Check className="w-3 h-3 text-white" />
-                        </Checkbox.Indicator>
-                      </Checkbox.Root>
-                      <label htmlFor="select-all-share" className="text-sm font-medium text-[#19183B] cursor-pointer">
-                        Select All ({filteredShareUsers.length} users)
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Users List */}
-                  <div className="max-h-[180px] min-h-[100px] overflow-y-auto border border-[#A1C2BD] rounded-lg mb-1">
-                    {isLoadingUsers ? (
-                      <div className="p-6 text-center">
-                        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-                        <p className="text-sm text-gray-500">Loading available users...</p>
+                  {/* Tab Content - View Only */}
+                  {sharePermission === 'view' && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-semibold text-gray-900">Select Users for View Only Access</h4>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500">
+                            {selectedViewUsers.length} selected
+                          </span>
+                          <button
+                            onClick={selectAllViewUsers}
+                            className="text-xs text-green-600 hover:text-green-800 hover:bg-green-50 px-2 py-1 rounded"
+                          >
+                            {selectedViewUsers.length === filteredShareUsers.filter(u => !selectedSignUsers.includes(u.id)).length ? 'Deselect All' : 'Select All'}
+                          </button>
+                        </div>
                       </div>
-                    ) : filteredShareUsers.length > 0 ? (
-                      <div className="divide-y divide-gray-100">
-                        {filteredShareUsers.map((availableUser) => (
-                          <div key={availableUser.id} className="flex items-center gap-2 p-3 hover:bg-gray-50">
-                            <Checkbox.Root
-                              id={`user-share-${availableUser.id}`}
-                              checked={selectedUsersForShare.includes(availableUser.id)}
-                              onCheckedChange={() => toggleUserForShareSelection(availableUser.id)}
-                              className="w-4 h-4 bg-white border border-blue-500 rounded flex items-center justify-center data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-                            >
-                              <Checkbox.Indicator>
-                                <Check className="w-3 h-3 text-white" />
-                              </Checkbox.Indicator>
-                            </Checkbox.Root>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <div className="p-1 bg-blue-100 rounded-full">
-                                  <User className="w-3 h-3 text-blue-600" />
-                                </div>
-                                <div>
-                                  <p className="text-sm font-medium text-[#19183B] truncate">{availableUser.username}</p>
-                                  <p className="text-xs text-[#708993] truncate">{availableUser.email}</p>
-                                  {availableUser.roles && (
-                                    <p className="text-xs text-gray-500 truncate">
-                                      {availableUser.roles.join(', ')}
-                                    </p>
+                      
+                      <div className="max-h-[400px] min-h-[200px] overflow-y-auto border border-green-200 rounded-lg">
+                        {isLoadingUsers ? (
+                          <div className="p-4 text-center">
+                            <div className="w-5 h-5 border-2 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                            <p className="text-xs text-gray-500">Loading users...</p>
+                          </div>
+                        ) : filteredShareUsers.length > 0 ? (
+                          <div className="divide-y divide-green-50">
+                            {filteredShareUsers.map((availableUser) => {
+                              const isInSignUsers = selectedSignUsers.includes(availableUser.id);
+                              
+                              return (
+                                <div 
+                                  key={availableUser.id} 
+                                  className={`flex items-center gap-2 p-3 transition-colors ${
+                                    isInSignUsers 
+                                      ? 'bg-gray-100 cursor-not-allowed opacity-60' 
+                                      : 'hover:bg-green-50 cursor-pointer'
+                                  }`}
+                                >
+                                  <Checkbox.Root
+                                    id={`view-user-${availableUser.id}`}
+                                    checked={selectedViewUsers.includes(availableUser.id)}
+                                    disabled={isInSignUsers}
+                                    onCheckedChange={() => toggleViewUserSelection(availableUser.id)}
+                                    className={`w-4 h-4 bg-white border rounded flex items-center justify-center ${
+                                      isInSignUsers
+                                        ? 'border-gray-300 cursor-not-allowed'
+                                        : 'border-green-500 data-[state=checked]:bg-green-600 data-[state=checked]:border-green-600'
+                                    }`}
+                                  >
+                                    <Checkbox.Indicator>
+                                      <Check className="w-3 h-3 text-white" />
+                                    </Checkbox.Indicator>
+                                  </Checkbox.Root>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <div className="p-1 bg-green-100 rounded-full">
+                                        <User className="w-3 h-3 text-green-600" />
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-medium text-gray-900 truncate">{availableUser.username}</p>
+                                        <p className="text-xs text-gray-500 truncate">{availableUser.email}</p>
+                                        {availableUser.roles && (
+                                          <p className="text-xs text-gray-400 truncate">
+                                            {availableUser.roles.join(', ')}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {isInSignUsers ? (
+                                    <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-full">
+                                      In View & Sign
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                                      View Only
+                                    </span>
                                   )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="p-4 text-center text-gray-500">
+                            <Eye className="w-5 h-5 mx-auto mb-1 opacity-50" />
+                            <p className="text-xs">No users available</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tab Content - View & Sign */}
+                  {sharePermission === 'view_and_sign' && (
+                    <div className="space-y-4">
+                      {/* User Selection */}
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="text-sm font-semibold text-gray-900">Select Users for View & Sign Access</h4>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500">
+                              {selectedSignUsers.length} selected
+                            </span>
+                            <button
+                              onClick={selectAllSignUsers}
+                              className="text-xs text-purple-600 hover:text-purple-800 hover:bg-purple-50 px-2 py-1 rounded"
+                            >
+                              {selectedSignUsers.length === filteredShareUsers.filter(u => !selectedViewUsers.includes(u.id)).length ? 'Deselect All' : 'Select All'}
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="max-h-[200px] min-h-[100px] overflow-y-auto border border-purple-200 rounded-lg mb-4">
+                          {isLoadingUsers ? (
+                            <div className="p-4 text-center">
+                              <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                              <p className="text-xs text-gray-500">Loading users...</p>
+                            </div>
+                          ) : filteredShareUsers.length > 0 ? (
+                            <div className="divide-y divide-purple-50">
+                              {filteredShareUsers.map((availableUser) => {
+                                const isInViewUsers = selectedViewUsers.includes(availableUser.id);
+                                
+                                return (
+                                  <div 
+                                    key={availableUser.id} 
+                                    className={`flex items-center gap-2 p-3 transition-colors ${
+                                      isInViewUsers 
+                                        ? 'bg-gray-100 cursor-not-allowed opacity-60' 
+                                        : 'hover:bg-purple-50 cursor-pointer'
+                                    }`}
+                                  >
+                                    <Checkbox.Root
+                                      id={`sign-user-${availableUser.id}`}
+                                      checked={selectedSignUsers.includes(availableUser.id)}
+                                      disabled={isInViewUsers}
+                                      onCheckedChange={() => toggleSignUserSelection(availableUser.id)}
+                                      className={`w-4 h-4 bg-white border rounded flex items-center justify-center ${
+                                        isInViewUsers
+                                          ? 'border-gray-300 cursor-not-allowed'
+                                          : 'border-purple-500 data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600'
+                                      }`}
+                                    >
+                                      <Checkbox.Indicator>
+                                        <Check className="w-3 h-3 text-white" />
+                                      </Checkbox.Indicator>
+                                    </Checkbox.Root>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <div className="p-1 bg-purple-100 rounded-full">
+                                          <User className="w-3 h-3 text-purple-600" />
+                                        </div>
+                                        <div>
+                                          <p className="text-sm font-medium text-gray-900 truncate">{availableUser.username}</p>
+                                          <p className="text-xs text-gray-500 truncate">{availableUser.email}</p>
+                                          {availableUser.roles && (
+                                            <p className="text-xs text-gray-400 truncate">
+                                              {availableUser.roles.join(', ')}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    {isInViewUsers ? (
+                                      <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                                        In View Only
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-full">
+                                        View & Sign
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="p-4 text-center text-gray-500">
+                              <PenTool className="w-5 h-5 mx-auto mb-1 opacity-50" />
+                              <p className="text-xs">No users available</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {/* Signing Order */}
+                      {selectedSignUsers.length > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <ListOrdered className="w-4 h-4 text-purple-600" />
+                              <h3 className="text-sm font-semibold text-gray-900">Signing Order</h3>
+                              <span className="text-xs text-gray-500">(Drag to reorder or use arrows)</span>
+                            </div>
+                            <div className="text-xs text-blue-600 flex items-center gap-1">
+                              <UsersIcon className="w-3 h-3" />
+                              {signerSteps.filter(s => s.parallel).length} parallel signers
+                            </div>
+                          </div>
+                          
+                          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                            <div className="mb-3 p-2 bg-blue-50 rounded border border-blue-200">
+                              <p className="text-xs text-blue-700 flex items-center gap-1">
+                                💡 <span className="font-semibold">Parallel Signing:</span> Click the 
+                                <UserCheck className="w-3 h-3 inline mx-1" /> 
+                                button to allow multiple users to sign at the same step.
+                              </p>
+                            </div>
+                            
+                            <DndContext
+                              sensors={sensors}
+                              collisionDetection={closestCenter}
+                              onDragEnd={handleDragEnd}
+                            >
+                              <SortableContext
+                                items={signerSteps.map(step => step.userId)}
+                                strategy={verticalListSortingStrategy}
+                              >
+                                <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                                  {signerSteps.map((step, index) => (
+                                    <SortableItem
+                                      key={step.userId}
+                                      id={step.userId}
+                                      step={step}
+                                      index={index}
+                                      moveSignerUp={moveSignerUp}
+                                      moveSignerDown={moveSignerDown}
+                                      totalItems={signerSteps.length}
+                                      onToggleParallel={toggleParallelSigning}
+                                      getParallelGroup={getParallelGroup}
+                                    />
+                                  ))}
+                                </div>
+                              </SortableContext>
+                            </DndContext>
+                            
+                            {/* Step Legend */}
+                            <div className="mt-3 pt-3 border-t border-purple-200">
+                              <div className="flex items-center gap-3 text-xs text-gray-600">
+                                <div className="flex items-center gap-1">
+                                  <div className="w-3 h-3 bg-purple-100 rounded-full"></div>
+                                  <span>Sequential</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <div className="w-3 h-3 bg-blue-100 rounded-full"></div>
+                                  <span>Parallel</span>
                                 </div>
                               </div>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="p-6 text-center text-[#708993]">
-                        <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm mb-1">
-                          {shareSearchQuery ? 'No users match your search' : 'No available users'}
-                        </p>
-                        <p className="text-xs">
-                          {shareSearchQuery 
-                            ? 'Try a different search term' 
-                            : 'All users already have access to this document'}
-                        </p>
-                        {shareSearchQuery && (
-                          <button
-                            onClick={() => setShareSearchQuery('')}
-                            className="mt-2 px-2 py-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
-                          >
-                            Clear search
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   
-                  {/* Selected count */}
-                  <div className="text-xs text-gray-500 text-right mb-1">
-                    {selectedUsersForShare.length} of {filteredShareUsers.length} users selected
+                  {/* Total selected count */}
+                  <div className="text-xs text-gray-500 text-right mt-3">
+                    Total: {selectedUsersForShare.length} users selected ({selectedViewUsers.length} view only, {selectedSignUsers.length} view & sign)
                   </div>
                 </div>
-
-                {/* Signer Hierarchy - Only show when view_and_sign is selected and users are selected */}
-                {sharePermission === 'view_and_sign' && signerSteps.length > 0 && (
-                  <div className="border-t pt-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <ListOrdered className="w-4 h-4 text-purple-600" />
-                      <h3 className="text-sm font-semibold text-gray-900">Signing Order</h3>
-                      <span className="text-xs text-gray-500">(Drag to reorder or use arrow buttons)</span>
-                    </div>
-                    
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                      <p className="text-xs text-purple-700 mb-3">
-                        Define the order in which recipients must sign the document. Each signer will be notified when it's their turn.
-                      </p>
-                      
-                      <DndContext
-                        sensors={sensors}
-                        collisionDetection={closestCenter}
-                        onDragEnd={handleDragEnd}
-                      >
-                        <SortableContext
-                          items={signerSteps.map(step => step.userId)}
-                          strategy={verticalListSortingStrategy}
-                        >
-                          <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                            {signerSteps.map((step, index) => (
-                              <SortableItem
-                                key={step.userId}
-                                id={step.userId}
-                                step={step}
-                                index={index}
-                                moveSignerUp={moveSignerUp}
-                                moveSignerDown={moveSignerDown}
-                                totalItems={signerSteps.length}
-                              />
-                            ))}
-                          </div>
-                        </SortableContext>
-                      </DndContext>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -1861,11 +2850,14 @@ const UploadManager: React.FC = () => {
                     setShareDialogOpen(false);
                     setSelectedDocumentForShare(null);
                     setSelectedUsersForShare([]);
+                    setSelectedViewUsers([]);
+                    setSelectedSignUsers([]);
                     setShareMessage('');
                     setSharePermission('view');
                     setIsShareDownloadable(true);
                     setShareSearchQuery('');
                     setSignerSteps([]);
+                    setParallelGroups(new Map());
                   }}
                   className="px-4 py-2 text-sm border border-[#A1C2BD] text-[#19183B] rounded-lg font-medium hover:bg-[#E7F2EF] transition-colors"
                   disabled={isSharing}
@@ -1886,6 +2878,12 @@ const UploadManager: React.FC = () => {
                     <>
                       <Share2 className="w-3.5 h-3.5" />
                       Share with {selectedUsersForShare.length} user{selectedUsersForShare.length !== 1 ? 's' : ''}
+                      {selectedSignUsers.length > 0 && (
+                        <span className="text-xs opacity-90">
+                          • {selectedSignUsers.length} signer{selectedSignUsers.length !== 1 ? 's' : ''}
+                          {signerSteps.filter(s => s.parallel).length > 0 && ' with parallel signing'}
+                        </span>
+                      )}
                     </>
                   )}
                 </button>
@@ -1900,12 +2898,35 @@ const UploadManager: React.FC = () => {
         <Dialog.Root open={signDialogOpen} onOpenChange={setSignDialogOpen}>
           <Dialog.Portal>
             <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" />
-            <Dialog.Content className="fixed inset-0 bg-white z-50 flex flex-col">
+
+            <Dialog.Content className="fixed inset-0 z-50 bg-white flex flex-col">
               <Dialog.Title className="sr-only">Sign Document</Dialog.Title>
-              <div className="p-4 border-b border-[#A1C2BD] flex justify-between items-center">
-                <h2 className="text-lg font-semibold text-[#19183B]">
-                  Sign Document: {signDocument.fileName}
-                </h2>
+
+              {/* Header */}
+              <div className="p-4 border-b border-[#A1C2BD] flex justify-between items-center bg-white shrink-0">
+                <div className="flex items-center gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold text-[#19183B]">
+                      Sign Document: {signDocument.fileName}
+                    </h2>
+
+                    {signDocument.signerSteps?.length !== undefined && signDocument.signerSteps?.length > 0 && (
+                      <button
+                        onClick={() => setSigningOrderDialogOpen(true)}
+                        className="group flex items-center gap-2 mt-1 px-2 py-1 rounded-md hover:bg-blue-50 transition-colors"
+                      >
+                        <Info className="w-3.5 h-3.5 text-blue-600" />
+                        <p className="text-xs text-gray-500 group-hover:text-blue-700 transition-colors">
+                          {signDocument.signerSteps.length} signer(s) •{" "}
+                          {signDocument.signerSteps.some(s => s.parallel)
+                            ? "Parallel signing enabled"
+                            : "Sequential signing"}
+                        </p>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 <button
                   onClick={() => {
                     if (signDocument) {
@@ -1919,8 +2940,10 @@ const UploadManager: React.FC = () => {
                   <X className="w-5 h-5" />
                 </button>
               </div>
+
+              {/* PDF Signer — THIS fills the screen */}
               <div className="flex-1 overflow-hidden">
-                <UserPdfSigner 
+                <UserPdfSigner
                   preloadedDocument={signDocument}
                   onClose={() => {
                     if (signDocument) {
@@ -1928,9 +2951,60 @@ const UploadManager: React.FC = () => {
                     }
                     setSignDialogOpen(false);
                     setSignDocument(null);
-                    loadDocuments(); // Reload documents after signing
+                    loadDocuments();
                   }}
                 />
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      )}
+
+      {/* Signing Order Indicator Dialog */}
+      {signDocument && (
+        <Dialog.Root open={signingOrderDialogOpen} onOpenChange={setSigningOrderDialogOpen}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60]" />
+            <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col border-2 border-blue-200 z-[60]">
+              {/* Dialog Header */}
+              <div className="p-4 border-b border-blue-200 bg-gradient-to-r from-blue-50 to-purple-50 rounded-t-2xl shrink-0">
+                <div className="flex items-center justify-between">
+                  <Dialog.Title className="flex items-center gap-3 text-xl font-bold text-[#19183B]">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <ListOrdered className="w-5 h-5 text-blue-600" />
+                    </div>
+                    Signing Order Details
+                  </Dialog.Title>
+                  <button
+                    onClick={() => setSigningOrderDialogOpen(false)}
+                    className="p-2 hover:bg-white/50 rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-[#708993]" />
+                  </button>
+                </div>
+                <p className="text-sm text-gray-600 mt-2 ml-12">
+                  View the complete signing workflow for this document
+                </p>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-4">
+                <SigningOrderIndicator
+                  document={signDocument}
+                  currentUser={user}
+                />
+              </div>
+
+              {/* Footer */}
+              <div className="shrink-0 p-4 border-t border-blue-200 bg-white rounded-b-2xl">
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setSigningOrderDialogOpen(false)}
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </Dialog.Content>
           </Dialog.Portal>
@@ -1966,46 +3040,179 @@ const UploadManager: React.FC = () => {
                 <p className="text-[#708993] text-sm">
                   Document "<span className="font-semibold text-[#19183B]">{selectedDocumentForSharedUsers?.fileName}</span>" is shared with the following users:
                 </p>
+                
+                {/* Show if signing order is enabled */}
+                {selectedDocumentForSharedUsers?.signerSteps && selectedDocumentForSharedUsers.signerSteps.length > 0 && selectedDocumentForSharedUsers.availableForSigning && (
+                  <div className="mt-2 p-2 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded">
+                    <div className="flex items-center gap-2">
+                      <ListOrdered className="w-4 h-4 text-purple-600" />
+                      <div>
+                        <p className="text-xs text-purple-700 font-semibold">
+                          {selectedDocumentForSharedUsers.signerSteps.some(s => s.parallel) 
+                            ? 'Parallel Signing Order Enabled' 
+                            : 'Signing Order Enabled'}
+                        </p>
+                        <p className="text-xs text-purple-600">
+                          {selectedDocumentForSharedUsers.signerSteps.filter(s => s.hasSigned).length} of {selectedDocumentForSharedUsers.signerSteps.length} signers completed
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Scrollable Content Area */}
             <div className="flex-1 overflow-y-auto p-6">
               {selectedDocumentForSharedUsers?.sharedToUsers && selectedDocumentForSharedUsers.sharedToUsers.length > 0 ? (
-                <div className="space-y-2">
-                  {selectedDocumentForSharedUsers.sharedToUsers.map((sharedUser, index) => (
-                    <div
-                      key={sharedUser.id}
-                      className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors"
-                    >
-                      <div className="flex items-center justify-center w-10 h-10 bg-blue-100 rounded-full shrink-0">
-                        <User className="w-5 h-5 text-blue-600" />
-                      </div>
-                      
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-[#19183B] truncate">
-                          {sharedUser.username}
-                        </p>
-                        <p className="text-xs text-[#708993] truncate">
-                          {sharedUser.email}
-                        </p>
-                      </div>
-
-                      {sharedUser.permission && (
-                        <div className="shrink-0">
-                          <span
-                            className={`px-3 py-1 text-xs font-medium rounded-full ${
-                              sharedUser.permission === 'view'
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-purple-100 text-purple-700'
-                            }`}
-                          >
-                            {sharedUser.permission === 'view' ? 'View Only' : 'View & Sign'}
+                <div className="space-y-4">
+                  {/* Group users by permission type */}
+                  <div className="space-y-4">
+                    {/* View Only Users */}
+                    {selectedDocumentForSharedUsers.sharedToUsers.filter(user => user.permission === 'view').length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="p-1.5 bg-green-100 rounded-lg">
+                            <Eye className="w-4 h-4 text-green-600" />
+                          </div>
+                          <h4 className="text-sm font-semibold text-gray-900">View Only</h4>
+                          <span className="text-xs text-gray-500">
+                            ({selectedDocumentForSharedUsers.sharedToUsers.filter(user => user.permission === 'view').length} users)
                           </span>
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        <div className="space-y-2">
+                          {selectedDocumentForSharedUsers.sharedToUsers
+                            .filter(user => user.permission === 'view')
+                            .map((sharedUser) => (
+                              <div
+                                key={sharedUser.id}
+                                className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors"
+                              >
+                                <div className="flex items-center justify-center w-10 h-10 bg-green-100 rounded-full shrink-0">
+                                  <User className="w-5 h-5 text-green-600" />
+                                </div>
+                                
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-semibold text-[#19183B] truncate">
+                                      {sharedUser.username}
+                                    </p>
+                                  </div>
+                                  <p className="text-xs text-[#708993] truncate">
+                                    {sharedUser.email}
+                                  </p>
+                                </div>
+
+                                <div className="shrink-0">
+                                  <span
+                                    className="px-3 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700"
+                                  >
+                                    View Only
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* View & Sign Users */}
+                    {selectedDocumentForSharedUsers.sharedToUsers.filter(user => user.permission === 'view_and_sign').length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="p-1.5 bg-purple-100 rounded-lg">
+                            <PenTool className="w-4 h-4 text-purple-600" />
+                          </div>
+                          <h4 className="text-sm font-semibold text-gray-900">View & Sign</h4>
+                          <span className="text-xs text-gray-500">
+                            ({selectedDocumentForSharedUsers.sharedToUsers.filter(user => user.permission === 'view_and_sign').length} users)
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {selectedDocumentForSharedUsers.sharedToUsers
+                            .filter(user => user.permission === 'view_and_sign')
+                            .map((sharedUser) => {
+                              const userStep = selectedDocumentForSharedUsers?.signerSteps?.find(
+                                step => step.userId === sharedUser.id
+                              );
+                              
+                              return (
+                                <div
+                                  key={sharedUser.id}
+                                  className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors"
+                                >
+                                  {/* Step number indicator */}
+                                  {userStep ? (
+                                    <div className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
+                                      userStep.hasSigned 
+                                        ? 'bg-green-100 border-2 border-green-300' 
+                                        : userStep.parallel
+                                        ? 'bg-blue-100 border-2 border-blue-300'
+                                        : 'bg-purple-100 border-2 border-purple-300'
+                                    }`}>
+                                      {userStep.hasSigned ? (
+                                        <CheckCircle className="w-4 h-4 text-green-600" />
+                                      ) : userStep.parallel ? (
+                                        <UsersIcon className="w-4 h-4 text-blue-600" />
+                                      ) : !selectedDocumentForSharedUsers.availableForSigning ? (
+                                        <User className="w-4 h-4 text-blue-600" />
+                                      ) : (
+                                        <span className="text-sm font-bold text-purple-700">{userStep.step}</span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-center w-10 h-10 bg-purple-100 rounded-full shrink-0">
+                                      <User className="w-5 h-5 text-purple-600" />
+                                    </div>
+                                  )}
+                                  
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-sm font-semibold text-[#19183B] truncate">
+                                        {sharedUser.username}
+                                      </p>
+                                      {userStep?.hasSigned && (
+                                        <span className="px-1.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded-full">
+                                          Signed
+                                        </span>
+                                      )}
+                                      {userStep?.parallel && !userStep.hasSigned && (
+                                        <span className="px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
+                                          Parallel
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-[#708993] truncate">
+                                      {sharedUser.email}
+                                    </p>
+                                  </div>
+
+                                  <div className="shrink-0 flex items-center gap-2">
+                                    {userStep && (
+                                      <span className={`px-2 py-1 text-xs font-medium rounded ${
+                                        userStep.hasSigned 
+                                          ? 'bg-green-100 text-green-700' 
+                                          : userStep.parallel
+                                          ? 'bg-blue-100 text-blue-700'
+                                          : 'bg-purple-100 text-purple-700'
+                                      }`}>
+                                        {userStep.hasSigned ? 'Signed ✓' : 
+                                         userStep.parallel ? `Step ${userStep.step} (Parallel)` : `Step ${userStep.step}`}
+                                      </span>
+                                    )}
+                                    <span
+                                      className="px-3 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700"
+                                    >
+                                      View & Sign
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 text-[#708993]">
@@ -2020,6 +3227,8 @@ const UploadManager: React.FC = () => {
               <div className="flex justify-between items-center">
                 <p className="text-sm text-[#708993]">
                   {selectedDocumentForSharedUsers?.sharedToUsers?.length || 0} user(s) have access to this document
+                  {selectedDocumentForSharedUsers?.signerSteps && selectedDocumentForSharedUsers.signerSteps.length > 0 && selectedDocumentForSharedUsers.availableForSigning && 
+                    ` • ${selectedDocumentForSharedUsers.signerSteps.filter(s => s.hasSigned).length}/${selectedDocumentForSharedUsers.signerSteps.length} completed signing`}
                 </p>
                 <button
                   onClick={() => {
@@ -2030,6 +3239,297 @@ const UploadManager: React.FC = () => {
                 >
                   Close
                 </button>
+              </div>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Unshare Modal */}
+      <Dialog.Root open={unshareDialogOpen} onOpenChange={setUnshareDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col border-2 border-red-200 z-50">
+            {/* Header */}
+            <div className="p-6 border-b border-red-200 bg-white rounded-t-2xl shrink-0">
+              <div className="flex items-center justify-between">
+                <Dialog.Title className="flex items-center gap-3 text-2xl font-bold text-red-600">
+                  <div className="p-2 bg-red-100 rounded-lg">
+                    <UserX className="w-6 h-6 text-red-600" />
+                  </div>
+                  Remove Access
+                </Dialog.Title>
+                <button
+                  onClick={() => {
+                    setUnshareDialogOpen(false);
+                    setSelectedDocumentForUnshare(null);
+                    setSelectedUsersForUnshare([]);
+                  }}
+                  className="p-2 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-red-600" />
+                </button>
+              </div>
+              
+              <div className="mt-4">
+                <p className="text-gray-700 text-sm">
+                  Select users to remove access from document "
+                  <span className="font-semibold text-[#19183B]">
+                    {selectedDocumentForUnshare?.fileName}
+                  </span>":
+                </p>
+                
+                <div className="p-3 bg-red-50 rounded-lg border border-red-200 mt-2">
+                  <p className="text-sm text-red-800">
+                    ⚠️ Selected users will lose all access to this document. This action cannot be undone.
+                  </p>
+                  {selectedDocumentForUnshare?.signerSteps && selectedDocumentForUnshare.signerSteps.filter(s => s.permission === 'view_and_sign').length > 0 && (
+                    <p className="text-xs text-red-700 mt-1">
+                      Note: Removing signers will also remove them from the signing order.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Scrollable Content Area */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {selectedDocumentForUnshare?.sharedToUsers && selectedDocumentForUnshare.sharedToUsers.length > 0 ? (
+                <div className="space-y-4">
+                  {/* Select All */}
+                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center gap-2">
+                      <Checkbox.Root
+                        id="select-all-unshare"
+                        checked={selectedUsersForUnshare.length === selectedDocumentForUnshare.sharedToUsers.length && selectedDocumentForUnshare.sharedToUsers.length > 0}
+                        onCheckedChange={selectAllUsersForUnshare}
+                        className="w-4 h-4 bg-white border border-red-500 rounded flex items-center justify-center data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
+                      >
+                        <Checkbox.Indicator>
+                          <Check className="w-3 h-3 text-white" />
+                        </Checkbox.Indicator>
+                      </Checkbox.Root>
+                      <label htmlFor="select-all-unshare" className="text-sm font-medium text-[#19183B] cursor-pointer">
+                        Select All ({selectedDocumentForUnshare.sharedToUsers.length} users)
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* View Only Users */}
+                  {selectedDocumentForUnshare.sharedToUsers.filter(user => user.permission === 'view').length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="p-1.5 bg-green-100 rounded-lg">
+                          <Eye className="w-4 h-4 text-green-600" />
+                        </div>
+                        <h4 className="text-sm font-semibold text-gray-900">View Only</h4>
+                        <span className="text-xs text-gray-500">
+                          ({selectedDocumentForUnshare.sharedToUsers.filter(user => user.permission === 'view').length} users)
+                        </span>
+                      </div>
+                      
+                      <div className="space-y-2 mb-4">
+                        {selectedDocumentForUnshare.sharedToUsers
+                          .filter(user => user.permission === 'view')
+                          .map((sharedUser) => (
+                            <div key={sharedUser.id} className="flex items-center gap-3 p-4 hover:bg-red-50 transition-colors border border-gray-200 rounded-lg">
+                              <Checkbox.Root
+                                id={`user-unshare-${sharedUser.id}`}
+                                checked={selectedUsersForUnshare.includes(sharedUser.id)}
+                                onCheckedChange={() => toggleUserForUnshareSelection(sharedUser.id)}
+                                className="w-4 h-4 bg-white border border-red-500 rounded flex items-center justify-center data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
+                              >
+                                <Checkbox.Indicator>
+                                  <Check className="w-3 h-3 text-white" />
+                                </Checkbox.Indicator>
+                              </Checkbox.Root>
+                              
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2 rounded-full bg-green-100">
+                                    <Eye className="w-4 h-4 text-green-600" />
+                                  </div>
+                                  
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold text-[#19183B] truncate">
+                                      {sharedUser.username}
+                                    </p>
+                                    <p className="text-xs text-[#708993] truncate">
+                                      {sharedUser.email}
+                                    </p>
+                                    
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <span className="px-2 py-0.5 text-xs font-medium rounded bg-green-100 text-green-700">
+                                        View Only
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* View & Sign Users */}
+                  {selectedDocumentForUnshare.sharedToUsers.filter(user => user.permission === 'view_and_sign').length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="p-1.5 bg-purple-100 rounded-lg">
+                          <PenTool className="w-4 h-4 text-purple-600" />
+                        </div>
+                        <h4 className="text-sm font-semibold text-gray-900">View & Sign</h4>
+                        <span className="text-xs text-gray-500">
+                          ({selectedDocumentForUnshare.sharedToUsers.filter(user => user.permission === 'view_and_sign').length} users)
+                        </span>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {selectedDocumentForUnshare.sharedToUsers
+                          .filter(user => user.permission === 'view_and_sign')
+                          .map((sharedUser) => {
+                            const userStep = selectedDocumentForUnshare?.signerSteps?.find(
+                              step => step.userId === sharedUser.id && step.permission === 'view_and_sign'
+                            );
+                            const hasSigned = userStep?.hasSigned || false;
+                            
+                            return (
+                              <div key={sharedUser.id} className="flex items-center gap-3 p-4 hover:bg-red-50 transition-colors border border-gray-200 rounded-lg">
+                                <Checkbox.Root
+                                  id={`user-unshare-${sharedUser.id}`}
+                                  checked={selectedUsersForUnshare.includes(sharedUser.id)}
+                                  onCheckedChange={() => toggleUserForUnshareSelection(sharedUser.id)}
+                                  className="w-4 h-4 bg-white border border-red-500 rounded flex items-center justify-center data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
+                                >
+                                  <Checkbox.Indicator>
+                                    <Check className="w-3 h-3 text-white" />
+                                  </Checkbox.Indicator>
+                                </Checkbox.Root>
+                                
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-3">
+                                    {/* Step number indicator for signers only */}
+                                    {userStep ? (
+                                      <div className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
+                                        hasSigned 
+                                          ? 'bg-green-100 border-2 border-green-300' 
+                                          : userStep.parallel
+                                          ? 'bg-blue-100 border-2 border-blue-300'
+                                          : 'bg-purple-100 border-2 border-purple-300'
+                                      }`}>
+                                        {hasSigned ? (
+                                          <CheckCircle className="w-4 h-4 text-green-600" />
+                                        ) : userStep.parallel ? (
+                                          <UsersIcon className="w-4 h-4 text-blue-600" />
+                                        ) : (
+                                          <span className="text-sm font-bold text-purple-700">{userStep.step}</span>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="p-2 rounded-full bg-purple-100">
+                                        <PenTool className="w-4 h-4 text-purple-600" />
+                                      </div>
+                                    )}
+                                    
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <p className="text-sm font-semibold text-[#19183B] truncate">
+                                          {sharedUser.username}
+                                        </p>
+                                        {hasSigned && (
+                                          <span className="px-1.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded-full">
+                                            Signed
+                                          </span>
+                                        )}
+                                        {userStep?.parallel && !hasSigned && (
+                                          <span className="px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
+                                            Parallel
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-[#708993] truncate">
+                                        {sharedUser.email}
+                                      </p>
+                                      
+                                      <div className="flex items-center gap-2 mt-1">
+                                        <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-100 text-purple-700">
+                                          View & Sign
+                                        </span>
+                                        
+                                        {userStep && (
+                                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                                            hasSigned 
+                                              ? 'bg-green-100 text-green-700' 
+                                              : userStep.parallel
+                                              ? 'bg-blue-100 text-blue-700'
+                                              : 'bg-purple-100 text-purple-700'
+                                          }`}>
+                                            {hasSigned ? 'Signed' : 
+                                            userStep.parallel ? `Step ${userStep.step} (Parallel)` : `Step ${userStep.step}`}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Selected count */}
+                  <div className="text-xs text-gray-500 text-right">
+                    {selectedUsersForUnshare.length} of {selectedDocumentForUnshare.sharedToUsers.length} users selected
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+                  <Users className="w-12 h-12 mb-3 opacity-50" />
+                  <p className="text-sm">This document hasn't been shared with anyone yet</p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="shrink-0 p-4 border-t border-red-200 bg-white rounded-b-2xl">
+              <div className="flex justify-between items-center">
+                <p className="text-sm text-gray-500">
+                  {selectedUsersForUnshare.length} user{selectedUsersForUnshare.length !== 1 ? 's' : ''} selected for removal
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setUnshareDialogOpen(false);
+                      setSelectedDocumentForUnshare(null);
+                      setSelectedUsersForUnshare([]);
+                    }}
+                    className="px-4 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                    disabled={isUnsharing}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleUnshare}
+                    disabled={selectedUsersForUnshare.length === 0 || isUnsharing}
+                    className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isUnsharing ? (
+                      <>
+                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Removing...
+                      </>
+                    ) : (
+                      <>
+                        <UserX className="w-3.5 h-3.5" />
+                        Remove Access
+                        {selectedUsersForUnshare.length > 0 && ` (${selectedUsersForUnshare.length})`}
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </Dialog.Content>

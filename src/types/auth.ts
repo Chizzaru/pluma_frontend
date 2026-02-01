@@ -6,17 +6,18 @@ export interface User {
   roles: Role[];
 }
 
+export type Role = 'ROLE_ADMIN' | 'ROLE_USER';
+
 export interface AuthActions {
   refreshAccessToken: () => Promise<boolean>;
   logout: () => Promise<void>;
 }
 
-export type Role = 'ROLE_ADMIN' | 'ROLE_USER';
 
 export interface Auth{
     isAuthenticated: boolean | undefined;
     user: User | null;
-    login: (username: string, password:string) => void;
+    login: (username: string, password:string) => Promise<User>;
     logout: () => void;
 }
 
