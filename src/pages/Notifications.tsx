@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Bell, Search, ChevronLeft, ChevronRight, Check, X, 
-  FileText, Users, Share2, Send, Calendar, Clock, 
-  CheckCircle, AlertCircle, Info, Mail, Trash2, Eye
+  FileText, Users, Share2, Send, Clock, 
+  CheckCircle, Trash2, Eye
 } from 'lucide-react';
-import * as Dialog from '@radix-ui/react-dialog';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import api from '@/api/axiosInstance';
 import toast from 'react-hot-toast';
@@ -201,14 +200,6 @@ const Notifications: React.FC = () => {
     );
   };
 
-  // Select all items
-  const selectAllOnPage = () => {
-    if (selectedItems.length === filteredNotifications.length) {
-      setSelectedItems([]);
-    } else {
-      setSelectedItems(filteredNotifications.map(notif => notif.id));
-    }
-  };
 
   // Clear selection
   const clearSelection = () => {

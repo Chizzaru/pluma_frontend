@@ -7,7 +7,6 @@ import {
   Upload, 
   Search, 
   Download, 
-  PenTool, 
   Share2, 
   Forward, 
   Trash2, 
@@ -332,11 +331,6 @@ const SignedDocManagement: React.FC = () => {
       return;
     }
     toast.success(`Downloaded: ${doc.fileName}`);
-  };
-
-  const handleSign = (doc: PDFDocument) => {
-    console.log('Sign:', doc.fileName);
-    alert(`Opening signature dialog for: ${doc.fileName}`);
   };
 
 

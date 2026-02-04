@@ -1,25 +1,24 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   FileText, Search, ChevronLeft, ChevronRight, Eye, Download, X,
   ChevronLeft as ChevronLeftIcon, ChevronRight as ChevronRightIcon, ZoomIn, ZoomOut,
-  User, Users, Check, MoreVertical, Share2, Trash2, HardDrive,
+  User, Users, Check, Share2, Trash2, HardDrive,
   PenTool, Lock, Unlock,
-  Trash,
   ArrowUp,
   ArrowDown,
   ListOrdered,
   GripVertical,
-  Logs,
   Bookmark,
   CheckCircle,
   UsersIcon,
   UserCheck,
-  UserX
+  UserX,
+  CircleCheck
 } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Checkbox from '@radix-ui/react-checkbox';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   DndContext,
   closestCenter,
@@ -42,6 +41,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '@/auth/useAuth';
 import UserPdfSigner from '@/user/UserPdfSigner';
 import { useDocWebSocket } from '@/hooks/useDocWebSocket';
+import UserPdfVerifierv2 from '@/user/UserPdfVerifierv2';
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdf.worker.min.mjs`;
@@ -142,7 +142,6 @@ const SortableItem: React.FC<SortableItemProps> = ({
   };
 
   const parallelGroup = getParallelGroup(step.step);
-  const isInParallelGroup = parallelGroup.length > 1;
   const isFirstInParallel = parallelGroup[0]?.userId === step.userId;
 
   return (
@@ -251,11 +250,13 @@ const SortableItem: React.FC<SortableItemProps> = ({
 
 const Shared: React.FC = () => {
 
+  const [verifyDocument, setVerifyDocument] = useState<PDFDocument | null>(null);
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
+
   const [sharedUsersDialogOpen, setSharedUsersDialogOpen] = useState(false);
   const [selectedDocumentForSharedUsers, setSelectedDocumentForSharedUsers] = useState<PDFDocument | null>(null);
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(12);
   const { user } = useAuth();
 
@@ -284,9 +285,9 @@ const Shared: React.FC = () => {
   const [isSharing, setIsSharing] = useState(false);
   const [shareSearchQuery, setShareSearchQuery] = useState('');
   const [sharePermission, setSharePermission] = useState<'view' | 'view_and_sign'>('view');
-  const [availableUsers, setAvailableUsers] = useState<UserType[]>([]);
+  const [availableUsers, _setAvailableUsers] = useState<UserType[]>([]);
   const [filteredShareUsers, setFilteredShareUsers] = useState<UserType[]>([]);
-  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [isLoadingUsers, _setIsLoadingUsers] = useState(false);
   const [signerSteps, setSignerSteps] = useState<SignerStep[]>([]);
   const [parallelGroups, setParallelGroups] = useState<Map<number, Set<string>>>(new Map());
 
@@ -317,9 +318,20 @@ const Shared: React.FC = () => {
     })
   );
 
+  // Load documents from API with pagination and search
   useEffect(() => {
     loadDocuments();
-  }, []);
+  }, [pagination.currentPage, pagination.itemsPerPage]);
+
+  // Debounced search effect
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setPagination(prev => ({ ...prev, currentPage: 1 }));
+      loadDocuments();
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
 
   // Filter users based on search query for share dialog
   useEffect(() => {
@@ -382,7 +394,8 @@ const Shared: React.FC = () => {
         }
       });
       
-      parallelGroups.forEach((userIds, stepNumber) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      parallelGroups.forEach((userIds, _stepNumber) => {
         const allSelected = Array.from(userIds).every(userId => 
           selectedSignUsers.includes(userId)
         );
@@ -432,6 +445,7 @@ const Shared: React.FC = () => {
         offset: pagination.offset,
         user_id: user?.id,
         user_roles: user?.roles,
+        search: searchQuery.trim() || undefined,
         include_signer_steps: true,
       };
 
@@ -482,198 +496,122 @@ const Shared: React.FC = () => {
       setDocuments(documentsWithSteps);
       setPagination(prev => ({
         ...prev,
-        totalItems: data.pagination?.totalItems || 0,
-        totalPages: data.pagination?.totalPages || 1,
+        totalItems: data.pagination?.totalItems || data.totalItems || 0,
+        totalPages: data.pagination?.totalPages || data.totalPages || 1,
       }));
     } catch (error) {
       toast.error(`Error fetching shared documents: ${error}`);
     }
   };
 
-  // Filter and sort logic
-  const filteredDocuments = documents
-    .filter((doc) => {
-      const matchesSearch =
-        doc.fileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (doc.comment && doc.comment.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchesSearch;
-    })
-    .sort((a, b) => {
-      const dateA = new Date(a.uploadedAt).getTime();
-      const dateB = new Date(b.uploadedAt).getTime();
-      return dateB - dateA;
-    });
+  // Remove client-side filtering - use server-filtered results directly
+  const filteredDocuments = documents;
 
-  // Pagination
-  const totalPages = Math.ceil(filteredDocuments.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedDocuments = filteredDocuments.slice(startIndex, endIndex);
+  // Pagination - use server-paginated results
+  const totalPages = pagination.totalPages;
+  const paginatedDocuments = documents;
 
-  useEffect(() => {
-    setCurrentPage(1);
-    setSelectedItems([]);
-  }, [searchQuery]);
-
-  const openUnshareDialog = (doc: PDFDocument) => {
-    setSelectedDocumentForUnshare(doc);
-    setSelectedUsers(doc.sharedToUsers?.map(user => user.id) || []);
-    setUnshareSearchQuery('');
-    setUnshareDialogOpen(true);
-  };
-
-  const openShareDialog = async (doc: PDFDocument) => {
-    setSelectedDocumentForShare(doc);
-    setSelectedUsersForShare([]);
-    setSelectedViewUsers([]);
-    setSelectedSignUsers([]);
-    setShareMessage('');
-    setSharePermission('view');
-    setIsShareDownloadable(true);
-    setShareSearchQuery('');
-    setSignerSteps([]);
-    setParallelGroups(new Map());
-    
-    await loadAvailableUsersForSharing(doc);
-    setShareDialogOpen(true);
-  };
-
-
-  // Update the openSignDialog function (around line 220):
-const openSignDialog = (doc: PDFDocument) => {
-  if (doc.signerSteps && doc.signerSteps.length > 0) {
-    const currentUserIdStr = String(user?.id);
-    
-    // Find the current user's signer step (only for view_and_sign permission)
-    const userSignerStep = doc.signerSteps.find(step => {
-      const stepUserId = String(step.userId || step.user?.id || '');
-      return stepUserId === currentUserIdStr && step.permission === 'view_and_sign';
-    });
-    
-    // If user is not a signer (view_and_sign), check if they're view-only
-    if (!userSignerStep) {
-      const isViewOnlyUser = doc.signerSteps.some(step => {
-        const stepUserId = String(step.userId || step.user?.id || '');
-        return stepUserId === currentUserIdStr && step.permission === 'view';
-      });
-      
-      if (isViewOnlyUser) {
-        toast.error('You have view-only permission and cannot sign this document.');
-      } else {
-        toast.error('You are not authorized to sign this document.');
-      }
-      return;
-    }
-    
-    // If user has already signed, show error
-    if (userSignerStep.hasSigned) {
-      toast.error('You have already signed this document.');
-      return;
-    }
-    
-    // Now check turn-based signing, but ONLY for view_and_sign users
-    // Filter out view-only users (permission: 'view')
-    const signerStepsOnly = doc.signerSteps.filter(step => step.permission === 'view_and_sign');
-    
-    if (signerStepsOnly.length > 0) {
-      // Group signers by step
-      const stepsMap = new Map<number, SignerStep[]>();
-      signerStepsOnly.forEach(step => {
-        if (!stepsMap.has(step.step)) {
-          stepsMap.set(step.step, []);
-        }
-        stepsMap.get(step.step)!.push(step);
-      });
-      
-      // Sort steps in order
-      const sortedSteps = Array.from(stepsMap.entries()).sort(([a], [b]) => a - b);
-      
-      // Find the current active step (first step with any unsigned signers)
-      const currentActiveStep = sortedSteps.find(([stepNumber, signers]) => 
-        signers.some(signer => !signer.hasSigned)
-      );
-      
-      if (currentActiveStep) {
-        const [activeStepNumber, activeSigners] = currentActiveStep;
-        
-        // Check if user is in the active step
-        const isUserInActiveStep = activeSigners.some(signer => {
-          const signerUserId = String(signer.userId || signer.user?.id || '');
-          return signerUserId === currentUserIdStr;
-        });
-        
-        if (!isUserInActiveStep) {
-          // User is not in the active step
-          const pendingNames = activeSigners
-            .filter(s => !s.hasSigned)
-            .map(s => s.user?.username)
-            .filter(Boolean)
-            .join(', ');
-          
-          toast.error(
-            `It's not your turn yet. ${pendingNames || 'Other signers'} need to sign Step ${activeStepNumber} first.`
-          );
-          return;
-        }
-      }
-    }
-  }
-  
-  // If all checks pass, proceed to sign
-  handleBlockOthersForSigning(doc);
-  setSignDocument(doc);
-  setSignDialogOpen(true);
-};
-
-
-  const loadAvailableUsersForSharing = async (doc: PDFDocument) => {
-    setIsLoadingUsers(true);
-    try {
-      const response = await api.get("v1/users/search", {
-        params: {
-          query: '',
-          excludeCurrent: true,
-          currentUserId: user?.id,
-          documentId: doc.id
-        }
-      });
-
-      let allUsers: UserType[] = [];
-
-      if (Array.isArray(response.data)) {
-        allUsers = response.data;
-      } else if (response.data.data && Array.isArray(response.data.data)) {
-        allUsers = response.data.data;
-      } else if (response.data.users && Array.isArray(response.data.users)) {
-        allUsers = response.data.users;
-      } else {
-        console.error('Unexpected API response structure:', response.data);
-        toast.error('Unexpected response format from server');
-        return;
-      }
-
-      const transformedUsers = allUsers.map(user => ({
-        id: user.id?.toString() || '',
-        username: user.username || '',
-        email: user.email || '',
-        roles: user.roles?.map((role: any) => role.name || role) || []
-      }));
-
-      setAvailableUsers(transformedUsers);
-      setFilteredShareUsers(transformedUsers);
-    } catch (error) {
-      toast.error('Failed to load users');
-      console.error('Error loading users:', error);
-    } finally {
-      setIsLoadingUsers(false);
-    }
-  };
 
   // Filter shared users for unshare dialog
   const filteredSharedUsers = selectedDocumentForUnshare?.sharedToUsers?.filter(user =>
     user.username.toLowerCase().includes(unshareSearchQuery.toLowerCase()) ||
     user.email.toLowerCase().includes(unshareSearchQuery.toLowerCase())
   ) || [];
+
+
+
+  // Update the openSignDialog function
+  const openSignDialog = (doc: PDFDocument) => {
+    if (doc.signerSteps && doc.signerSteps.length > 0) {
+      const currentUserIdStr = String(user?.id);
+      
+      // Find the current user's signer step (only for view_and_sign permission)
+      const userSignerStep = doc.signerSteps.find(step => {
+        const stepUserId = String(step.userId || step.user?.id || '');
+        return stepUserId === currentUserIdStr && step.permission === 'view_and_sign';
+      });
+      
+      // If user is not a signer (view_and_sign), check if they're view-only
+      if (!userSignerStep) {
+        const isViewOnlyUser = doc.signerSteps.some(step => {
+          const stepUserId = String(step.userId || step.user?.id || '');
+          return stepUserId === currentUserIdStr && step.permission === 'view';
+        });
+        
+        if (isViewOnlyUser) {
+          toast.error('You have view-only permission and cannot sign this document.');
+        } else {
+          toast.error('You are not authorized to sign this document.');
+        }
+        return;
+      }
+      
+      // If user has already signed, show error
+      if (userSignerStep.hasSigned) {
+        toast.error('You have already signed this document.');
+        return;
+      }
+      
+      // Now check turn-based signing, but ONLY for view_and_sign users
+      // Filter out view-only users (permission: 'view')
+      const signerStepsOnly = doc.signerSteps.filter(step => step.permission === 'view_and_sign');
+      
+      if (signerStepsOnly.length > 0) {
+        // Group signers by step
+        const stepsMap = new Map<number, SignerStep[]>();
+        signerStepsOnly.forEach(step => {
+          if (!stepsMap.has(step.step)) {
+            stepsMap.set(step.step, []);
+          }
+          stepsMap.get(step.step)!.push(step);
+        });
+        
+        // Sort steps in order
+        const sortedSteps = Array.from(stepsMap.entries()).sort(([a], [b]) => a - b);
+        
+        // Find the current active step (first step with any unsigned signers)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const currentActiveStep = sortedSteps.find(([_stepNumber, signers]) => 
+          signers.some(signer => !signer.hasSigned)
+        );
+        
+        if (currentActiveStep) {
+          const [activeStepNumber, activeSigners] = currentActiveStep;
+          
+          // Check if user is in the active step
+          const isUserInActiveStep = activeSigners.some(signer => {
+            const signerUserId = String(signer.userId || signer.user?.id || '');
+            return signerUserId === currentUserIdStr;
+          });
+          
+          if (!isUserInActiveStep) {
+            // User is not in the active step
+            const pendingNames = activeSigners
+              .filter(s => !s.hasSigned)
+              .map(s => s.user?.username)
+              .filter(Boolean)
+              .join(', ');
+            
+            toast.error(
+              `It's not your turn yet. ${pendingNames || 'Other signers'} need to sign Step ${activeStepNumber} first.`
+            );
+            return;
+          }
+        }
+      }
+    }
+    
+    // If all checks pass, proceed to sign
+    handleBlockOthersForSigning(doc);
+    setSignDocument(doc);
+    setSignDialogOpen(true);
+  };
+  
+
+  const openVerifyDialog = (doc: PDFDocument) => {
+    setVerifyDocument(doc);
+    setVerifyDialogOpen(true);
+  };
 
   const handleShare = async () => {
     if (!selectedDocumentForShare || selectedUsersForShare.length === 0) return;
@@ -809,22 +747,6 @@ const openSignDialog = (doc: PDFDocument) => {
         ? prev.filter(id => id !== userId)
         : [...prev, userId]
     );
-  };
-
-  const toggleUserForShareSelection = (userId: string) => {
-    setSelectedUsersForShare(prev => 
-      prev.includes(userId) 
-        ? prev.filter(id => id !== userId)
-        : [...prev, userId]
-    );
-  };
-
-  const selectAllUsersForShare = () => {
-    if (selectedUsersForShare.length === filteredShareUsers.length) {
-      setSelectedUsersForShare([]);
-    } else {
-      setSelectedUsersForShare(filteredShareUsers.map(user => user.id));
-    }
   };
 
   // Toggle user selection for view only
@@ -1090,7 +1012,7 @@ const openSignDialog = (doc: PDFDocument) => {
     return date.toLocaleDateString();
   };
 
-  // Get status badge - Updated from UploadManager.tsx
+  // Get status badge
   const getStatusBadge = (doc: PDFDocument, totalSigners: number) => {
     const signerSteps = doc.signerSteps?.filter(step => step.permission === 'view_and_sign') || [];
   
@@ -1312,7 +1234,6 @@ const openSignDialog = (doc: PDFDocument) => {
     }
   };
 
-
   const canUserSignDocument = (doc: PDFDocument, currentUserId?: string | number): boolean => {
     if (!currentUserId) return false;
     
@@ -1356,7 +1277,6 @@ const openSignDialog = (doc: PDFDocument) => {
     
     return true;
   };
-
 
   const getSignButtonTitle = (doc: PDFDocument, currentUserId?: string | number): string => {
     if (!currentUserId) return "Please log in to sign";
@@ -1407,13 +1327,15 @@ const openSignDialog = (doc: PDFDocument) => {
     return "Sign document";
   };
 
-
-
   const openSharedUsersDialog = (doc: PDFDocument) => {
     setSelectedDocumentForSharedUsers(doc);
     setSharedUsersDialogOpen(true);
   };
 
+  const handleVerify = async (doc: PDFDocument) => { 
+    // Open verify dialog
+    openVerifyDialog(doc);
+  }
 
   return (
     <>
@@ -1435,7 +1357,7 @@ const openSignDialog = (doc: PDFDocument) => {
                 </div>
                 <div>
                   <h1 className="text-3xl font-bold text-[#19183B]">Shared</h1>
-                  <p className="text-[#708993]">Files you have signed, shared with others and files shared with you</p>
+                  <p className="text-[#708993]">View, verify, and sign PDF Documents that are shared to you.</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -1468,9 +1390,9 @@ const openSignDialog = (doc: PDFDocument) => {
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
+                  {/*<button className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
                     <Download className="w-4 h-4" />
-                  </button>
+                  </button>*/}
                   <button className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg">
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -1498,8 +1420,13 @@ const openSignDialog = (doc: PDFDocument) => {
                 <select
                   value={itemsPerPage}
                   onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
+                    const newLimit = Number(e.target.value);
+                    setItemsPerPage(newLimit);
+                    setPagination(prev => ({
+                      ...prev,
+                      currentPage: 1,
+                      itemsPerPage: newLimit
+                    }));
                   }}
                   className="px-4 py-3 border-2 border-[#A1C2BD] rounded-xl bg-white focus:ring-2 focus:ring-[#708993] outline-none transition-all cursor-pointer"
                 >
@@ -1705,6 +1632,13 @@ const openSignDialog = (doc: PDFDocument) => {
                                 >
                                   <Eye className="w-4 h-4" />
                                 </button>
+                                <button
+                                  onClick={() => handleVerify(doc)}
+                                  className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Verify"
+                                >
+                                  <CircleCheck className="w-4 h-4" />
+                                </button>
                               {/* Update the PenTool button condition: */}
                               {doc.signerSteps?.some(step => {
                                 const stepUserId = String(step.user?.id);
@@ -1742,12 +1676,12 @@ const openSignDialog = (doc: PDFDocument) => {
               <div className="border-t border-[#A1C2BD] p-6 bg-[#E7F2EF]/30">
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-[#708993]">
-                    Page {currentPage} of {totalPages} • {filteredDocuments.length} items
+                    Page {pagination.currentPage} of {totalPages} • {pagination.totalItems} items
                   </p>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                      disabled={currentPage === 1}
+                      onClick={() => setPagination(prev => ({ ...prev, currentPage: Math.max(1, prev.currentPage - 1) }))}
+                      disabled={pagination.currentPage === 1}
                       className="flex items-center gap-2 px-4 py-2 border-2 border-[#A1C2BD] text-[#19183B] rounded-lg font-semibold hover:bg-[#A1C2BD] hover:text-white transition-colors disabled:opacity-50"
                     >
                       <ChevronLeft className="w-4 h-4" />
@@ -1758,19 +1692,19 @@ const openSignDialog = (doc: PDFDocument) => {
                         let pageNum;
                         if (totalPages <= 5) {
                           pageNum = i + 1;
-                        } else if (currentPage <= 3) {
+                        } else if (pagination.currentPage <= 3) {
                           pageNum = i + 1;
-                        } else if (currentPage >= totalPages - 2) {
+                        } else if (pagination.currentPage >= totalPages - 2) {
                           pageNum = totalPages - 4 + i;
                         } else {
-                          pageNum = currentPage - 2 + i;
+                          pageNum = pagination.currentPage - 2 + i;
                         }
 
                         return (
                           <button
                             key={pageNum}
-                            onClick={() => setCurrentPage(pageNum)}
-                            className={`w-10 h-10 rounded-lg font-medium ${currentPage === pageNum
+                            onClick={() => setPagination(prev => ({ ...prev, currentPage: pageNum }))}
+                            className={`w-10 h-10 rounded-lg font-medium ${pagination.currentPage === pageNum
                               ? 'bg-[#19183B] text-white'
                               : 'border border-[#A1C2BD] text-[#19183B] hover:bg-[#A1C2BD] hover:text-white'
                               }`}
@@ -1781,8 +1715,8 @@ const openSignDialog = (doc: PDFDocument) => {
                       })}
                     </div>
                     <button
-                      onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                      disabled={currentPage === totalPages}
+                      onClick={() => setPagination(prev => ({ ...prev, currentPage: Math.min(totalPages, prev.currentPage + 1) }))}
+                      disabled={pagination.currentPage === totalPages}
                       className="flex items-center gap-2 px-4 py-2 border-2 border-[#A1C2BD] text-[#19183B] rounded-lg font-semibold hover:bg-[#A1C2BD] hover:text-white transition-colors disabled:opacity-50"
                     >
                       Next
@@ -1795,7 +1729,8 @@ const openSignDialog = (doc: PDFDocument) => {
           </div>
         </div>
       </div>
-{/* PDF Viewer Dialog */}
+
+      {/* PDF Viewer Dialog */}
       <Dialog.Root open={pdfViewerOpen} onOpenChange={(open) => {
         if (!open) closePdfViewer();
       }}>
@@ -1944,6 +1879,83 @@ const openSignDialog = (doc: PDFDocument) => {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {/* Sign Dialog */}
+      {signDocument && (
+        <Dialog.Root open={signDialogOpen} onOpenChange={setSignDialogOpen}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" />
+            <Dialog.Content className="fixed inset-0 bg-white z-50 flex flex-col">
+              <Dialog.Title className="sr-only">Sign Document</Dialog.Title>
+              <div className="p-4 border-b border-[#A1C2BD] flex justify-between items-center">
+                <h2 className="text-lg font-semibold text-[#19183B]">
+                  Sign Document: {signDocument.fileName}
+                </h2>
+                <button
+                  onClick={() => {
+                    if (signDocument) {
+                      handleReleaseDocumentLock(signDocument);
+                    }
+                    setSignDialogOpen(false);
+                    setSignDocument(null);
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <UserPdfSigner 
+                  preloadedDocument={signDocument}
+                  onClose={() => {
+                    if (signDocument) {
+                      handleReleaseDocumentLock(signDocument);
+                    }
+                    setSignDialogOpen(false);
+                    setSignDocument(null);
+                    loadDocuments();
+                  }}
+                />
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      )}
+
+      {/* Verify Dialog */}
+      {verifyDocument && (
+        <Dialog.Root open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" />
+            <Dialog.Content className="fixed inset-0 bg-white z-50 flex flex-col">
+              <Dialog.Title className="sr-only">Verify Document</Dialog.Title>
+              <div className="p-4 border-b border-[#A1C2BD] flex justify-between items-center">
+                <h2 className="text-lg font-semibold text-[#19183B]">
+                  Verify Document: {verifyDocument.fileName}
+                </h2>
+                <button
+                  onClick={() => {
+                    setVerifyDialogOpen(false);
+                    setVerifyDocument(null);
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <UserPdfVerifierv2 
+                  preloadedDocument={verifyDocument}
+                  onClose={() => {
+                    setVerifyDialogOpen(false);
+                    setVerifyDocument(null);
+                  }}
+                />
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      )}      
 
       {/* Share Dialog - Updated with Tabs */}
       <Dialog.Root open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
@@ -2863,6 +2875,42 @@ const openSignDialog = (doc: PDFDocument) => {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+
+      {/* Verify Dialog */}
+      {verifyDocument && (
+        <Dialog.Root open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" />
+            <Dialog.Content className="fixed inset-0 bg-white z-50 flex flex-col">
+              <Dialog.Title className="sr-only">Verify Document</Dialog.Title>
+              <div className="p-4 border-b border-[#A1C2BD] flex justify-between items-center">
+                <h2 className="text-lg font-semibold text-[#19183B]">
+                  Verify Document: {verifyDocument.fileName}
+                </h2>
+                <button
+                  onClick={() => {
+                    setVerifyDialogOpen(false);
+                    setVerifyDocument(null);
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <UserPdfVerifierv2 
+                  preloadedDocument={verifyDocument}
+                  onClose={() => {
+                    setVerifyDialogOpen(false);
+                    setVerifyDocument(null);
+                  }}
+                />
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      )}      
     </>
   );
 };

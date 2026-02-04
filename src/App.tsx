@@ -28,6 +28,7 @@ import type { ReactNode } from "react";
 import SignedDocManagement from "./pages/SignedDocManagement";
 import Notifications from "./pages/Notifications";
 import Dashboard from "./pages/Dashboard";
+import ApiPage from "./pages/ApiPage";
 
 
 interface AppProviderProps{
@@ -213,6 +214,17 @@ function App() {
               <RequireAuth>
                 <Layout>
                   <Shared />
+                </Layout>
+              </RequireAuth>
+            }
+          />
+
+          <Route
+            path="/connect"
+            element={
+              <RequireAuth>
+                <Layout>
+                  <ApiPage />
                 </Layout>
               </RequireAuth>
             }

@@ -21,7 +21,7 @@ import api from "@/api/axiosInstance";
 import { useAuth } from "@/auth/useAuth";
 import toast from "react-hot-toast";
 import { GlobalWorkerOptions } from "pdfjs-dist";
-import type { PDFPageProxy, RenderTask } from "pdfjs-dist";
+import type { RenderTask } from "pdfjs-dist";
 import { usePdfLoader } from "@/hooks/usePdfLoader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

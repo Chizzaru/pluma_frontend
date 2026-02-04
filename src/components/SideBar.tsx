@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useAuth } from '@/auth/useAuth';
 import { useSettings } from '@/hooks/useSettings';
-import { Files, Gauge, HatGlasses, Headset, Share2, Users } from 'lucide-react';
+import { Files, Gauge, HatGlasses, Headset, Share2, Unplug, Users } from 'lucide-react';
 
 interface SidebarProps {
   children?: React.ReactNode;
@@ -23,11 +23,18 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { isFullScreen } = useSettings();
 
+
+
+
+
+
+
+  // Define menu items for admin
   const menusForAdmin : MenuItem[] = [
     {
       icon: <Gauge />,
       label: 'Dashboard',
-      path: '#',
+      path: '/dashboard',
     },
     {
       icon: <Headset />,
@@ -45,8 +52,18 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
       path: '#',
     },
     { type: 'divider' },
+    {
+      icon: <Unplug />,
+      label: 'API Connect',
+      path: '/connect',
+    },
   ]
 
+
+
+
+
+  // Define menu items for regular user
   const menusForUser : MenuItem[] = [
     {
       icon: <Files />,
@@ -75,15 +92,6 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
     {
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-      label: 'Verify PDF',
-      path: '/verify',
-    },
-    {
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
         </svg>
       ),
@@ -98,8 +106,7 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
       ),
       label: 'Certificates',
       path: '/certificates',
-    },
-    { type: 'divider' },
+    }
   ]
   
   const [menuItems, setMenuItems] = useState<MenuItem[]>(

@@ -4,7 +4,7 @@ import * as Form from '@radix-ui/react-form';
 import * as Label from '@radix-ui/react-label';
 import { useAuth } from '../auth/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { type User, type Role } from "../types/auth";
+import { type User } from "../types/auth";
 interface LoginFormData {
   username: string;
   password: string;

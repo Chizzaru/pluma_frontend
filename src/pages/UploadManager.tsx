@@ -5,6 +5,7 @@ import * as Form from '@radix-ui/react-form';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import UserPdfVerifierv2 from '@/user/UserPdfVerifierv2';
 import { 
   FileText, 
   Upload, 
@@ -31,7 +32,6 @@ import {
   ListOrdered,
   GripVertical,
   MoreVertical,
-  File,
   HardDrive,
   Clock,
   CheckCircle,
@@ -39,7 +39,8 @@ import {
   Users as UsersIcon,
   UserCheck,
   UserX,
-  Files
+  Files,
+  CircleCheck
 } from 'lucide-react';
 
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -157,7 +158,6 @@ const SortableItem: React.FC<SortableItemProps> = ({
   };
 
   const parallelGroup = getParallelGroup(step.step);
-  const isInParallelGroup = parallelGroup.length > 1;
   const isFirstInParallel = parallelGroup[0]?.userId === step.userId;
 
   return (
@@ -291,7 +291,7 @@ const SigningOrderIndicator: React.FC<SigningOrderProps> = ({ document, currentU
   const currentUserSteps = document.signerSteps.filter(step => step.user?.id === currentUser?.id);
   
   // Find the current active step (first step with any unsigned signers)
-  const currentActiveStep = sortedSteps.find(([stepNumber, signers]) => 
+  const currentActiveStep = sortedSteps.find(([_stepNumber, signers]) => 
     signers.some(signer => !signer.hasSigned)
   );
   
@@ -517,6 +517,10 @@ import { useDocWebSocket } from '@/hooks/useDocWebSocket';
 import axios from 'axios';
 
 const UploadManager: React.FC = () => {
+
+  const [verifyDocument, setVerifyDocument] = useState<PDFDocument | null>(null);
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false);
+
   const [signingOrderDialogOpen, setSigningOrderDialogOpen] = useState(false);
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -742,7 +746,7 @@ const UploadManager: React.FC = () => {
         }
       });
       
-      parallelGroups.forEach((userIds, stepNumber) => {
+      parallelGroups.forEach((userIds) => {
         const allSelected = Array.from(userIds).every(userId => 
           selectedSignUsers.includes(userId)
         );
@@ -1635,21 +1639,7 @@ const UploadManager: React.FC = () => {
     setSelectedDocument(null);
   }
 
-  const toggleUserForShareSelection = (userId: string) => {
-    setSelectedUsersForShare(prev => 
-      prev.includes(userId) 
-        ? prev.filter(id => id !== userId)
-        : [...prev, userId]
-    );
-  };
 
-  const selectAllUsersForShare = () => {
-    if (selectedUsersForShare.length === filteredShareUsers.length) {
-      setSelectedUsersForShare([]);
-    } else {
-      setSelectedUsersForShare(filteredShareUsers.map(user => user.id));
-    }
-  };
 
   // =============================WEBSOCKET CODE=============================
   const handleDocUpdate = useCallback((updatedDoc: PDFDocument) => {
@@ -1737,6 +1727,13 @@ const UploadManager: React.FC = () => {
     }
   }
 
+
+
+  const handleVerify = (doc: PDFDocument) => {
+    setVerifyDocument(doc);
+    setVerifyDialogOpen(true);
+  };
+
   return (
     <>
       <div className="relative min-h-screen bg-[#E7F2EF] p-8">
@@ -1758,7 +1755,7 @@ const UploadManager: React.FC = () => {
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-[#19183B]">My Documents</h1>
-                <p className="text-[#708993]">Upload, manage, and share your PDF documents</p>
+                <p className="text-[#708993]">Upload, manage, sign and share your PDF documents</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -1798,9 +1795,9 @@ const UploadManager: React.FC = () => {
                 </button>
               </div>
               <div className="flex items-center gap-2">
-                <button className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
+                  {/*<button className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
                   <Download className="w-4 h-4" />
-                </button>
+                </button>*/}
                 <button 
                 className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg"
                 onClick={handleDeleteMarked}
@@ -1819,7 +1816,7 @@ const UploadManager: React.FC = () => {
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[#708993]" />
               <input
                 type="text"
-                placeholder="Search document by filename..."
+                placeholder="Search for a document by filename and by the user it was shared with."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-12 pr-4 py-3 border-2 border-[#A1C2BD] rounded-xl focus:ring-2 focus:ring-[#708993] focus:border-[#708993] outline-none transition-all"
@@ -2027,6 +2024,13 @@ const UploadManager: React.FC = () => {
                               >
                                 <Download className="w-4 h-4" />
                               </button>
+                              <button
+                                  onClick={() => handleVerify(doc)}
+                                  className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Verify"
+                                >
+                                  <CircleCheck className="w-4 h-4" />
+                                </button>                              
                               <button
                                 onClick={() => openSignDialog(doc)}
                                 disabled={!canUserSignDocument(doc, user?.id)}
@@ -3535,6 +3539,43 @@ const UploadManager: React.FC = () => {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+
+    {/* Verify Dialog */}
+    {verifyDocument && (
+      <Dialog.Root open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" />
+          <Dialog.Content className="fixed inset-0 bg-white z-50 flex flex-col">
+            <Dialog.Title className="sr-only">Verify Document</Dialog.Title>
+            <div className="p-4 border-b border-[#A1C2BD] flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-[#19183B]">
+                Verify Document: {verifyDocument.fileName}
+              </h2>
+              <button
+                onClick={() => {
+                  setVerifyDialogOpen(false);
+                  setVerifyDocument(null);
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <UserPdfVerifierv2 
+                preloadedDocument={verifyDocument}
+                onClose={() => {
+                  setVerifyDialogOpen(false);
+                  setVerifyDocument(null);
+                }}
+              />
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      )}
+      
     </>
   );
 };
