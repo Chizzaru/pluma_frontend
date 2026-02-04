@@ -2760,86 +2760,96 @@ const Shared: React.FC = () => {
                           </span>
                         </div>
                         <div className="space-y-2">
-                          {selectedDocumentForSharedUsers.sharedToUsers
-                            .filter(user => user.permission === 'view_and_sign')
-                            .map((sharedUser) => {
-                              const userStep = selectedDocumentForSharedUsers?.signerSteps?.find(
-                                step => step.userId === sharedUser.id
-                              );
-                              
-                              return (
-                                <div
-                                  key={sharedUser.id}
-                                  className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors"
-                                >
-                                  {/* Step number indicator */}
-                                  {userStep ? (
-                                    <div className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
-                                      userStep.hasSigned 
-                                        ? 'bg-green-100 border-2 border-green-300' 
-                                        : userStep.parallel
-                                        ? 'bg-blue-100 border-2 border-blue-300'
-                                        : 'bg-purple-100 border-2 border-purple-300'
-                                    }`}>
-                                      {userStep.hasSigned ? (
-                                        <CheckCircle className="w-4 h-4 text-green-600" />
-                                      ) : userStep.parallel ? (
-                                        <UsersIcon className="w-4 h-4 text-blue-600" />
-                                      ) : !selectedDocumentForSharedUsers.availableForSigning ? (
-                                        <User className="w-4 h-4 text-blue-600" />
-                                      ) : (
-                                        <span className="text-sm font-bold text-purple-700">{userStep.step}</span>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center justify-center w-10 h-10 bg-purple-100 rounded-full shrink-0">
-                                      <User className="w-5 h-5 text-purple-600" />
-                                    </div>
-                                  )}
-                                  
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <p className="text-sm font-semibold text-[#19183B] truncate">
-                                        {sharedUser.username}
-                                      </p>
-                                      {userStep?.hasSigned && (
-                                        <span className="px-1.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded-full">
-                                          Signed
-                                        </span>
-                                      )}
-                                      {userStep?.parallel && !userStep.hasSigned && (
-                                        <span className="px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
-                                          Parallel
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-xs text-[#708993] truncate">
-                                      {sharedUser.email}
-                                    </p>
-                                  </div>
+{selectedDocumentForSharedUsers.sharedToUsers
+  .filter(user => user.permission === 'view_and_sign')
+  .map((sharedUser) => {
+    const userStep = selectedDocumentForSharedUsers?.signerSteps?.find(
+      step => step.userId === sharedUser.id
+    );
+    return { sharedUser, userStep };
+  })
+  .filter(item => item.userStep) // Optional: only include users with steps
+  .sort((a, b) => {
+    // Sort by step number in ascending order
+    // Handle cases where step might be undefined
+    const stepA = a.userStep?.step || Infinity;
+    const stepB = b.userStep?.step || Infinity;
+    return stepA - stepB;
+  })
+  .map(({ sharedUser, userStep }) => {
+    return (
+      <div
+        key={sharedUser.id}
+        className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors"
+      >
+        {/* Step number indicator */}
+        {userStep ? (
+          <div className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
+            userStep.hasSigned 
+              ? 'bg-green-100 border-2 border-green-300' 
+              : userStep.parallel
+              ? 'bg-blue-100 border-2 border-blue-300'
+              : 'bg-purple-100 border-2 border-purple-300'
+          }`}>
+            {userStep.hasSigned ? (
+              <CheckCircle className="w-4 h-4 text-green-600" />
+            ) : userStep.parallel ? (
+              <UsersIcon className="w-4 h-4 text-blue-600" />
+            ) : !selectedDocumentForSharedUsers.availableForSigning ? (
+              <User className="w-4 h-4 text-blue-600" />
+            ) : (
+              <span className="text-sm font-bold text-purple-700">{userStep.step}</span>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center w-10 h-10 bg-purple-100 rounded-full shrink-0">
+            <User className="w-5 h-5 text-purple-600" />
+          </div>
+        )}
+        
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold text-[#19183B] truncate">
+              {sharedUser.username}
+            </p>
+            {userStep?.hasSigned && (
+              <span className="px-1.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded-full">
+                Signed
+              </span>
+            )}
+            {userStep?.parallel && !userStep.hasSigned && (
+              <span className="px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
+                Parallel
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-[#708993] truncate">
+            {sharedUser.email}
+          </p>
+        </div>
 
-                                  <div className="shrink-0 flex items-center gap-2">
-                                    {userStep && (
-                                      <span className={`px-2 py-1 text-xs font-medium rounded ${
-                                        userStep.hasSigned 
-                                          ? 'bg-green-100 text-green-700' 
-                                          : userStep.parallel
-                                          ? 'bg-blue-100 text-blue-700'
-                                          : 'bg-purple-100 text-purple-700'
-                                      }`}>
-                                        {userStep.hasSigned ? 'Signed ✓' : 
-                                         userStep.parallel ? `Step ${userStep.step} (Parallel)` : `Step ${userStep.step}`}
-                                      </span>
-                                    )}
-                                    <span
-                                      className="px-3 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700"
-                                    >
-                                      View & Sign
-                                    </span>
-                                  </div>
-                                </div>
-                              );
-                            })}
+        <div className="shrink-0 flex items-center gap-2">
+          {userStep && (
+            <span className={`px-2 py-1 text-xs font-medium rounded ${
+              userStep.hasSigned 
+                ? 'bg-green-100 text-green-700' 
+                : userStep.parallel
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-purple-100 text-purple-700'
+            }`}>
+              {userStep.hasSigned ? 'Signed ✓' : 
+               userStep.parallel ? `Step ${userStep.step} (Parallel)` : `Step ${userStep.step}`}
+            </span>
+          )}
+          <span
+            className="px-3 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700"
+          >
+            View & Sign
+          </span>
+        </div>
+      </div>
+    );
+  })}
                         </div>
                       </div>
                     )}

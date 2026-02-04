@@ -4,7 +4,8 @@ import { Client, type Message } from '@stomp/stompjs';
 import { type PDFDocument } from '../types/PDFDocument';
 
 export const useDocWebSocket = (
-    onFileUpdate: (file: PDFDocument) => void
+  onFileUpdate?: (file: PDFDocument) => void,
+  onNotifUpdate?:(count : number) => void
 ) => {
   const clientRef = useRef<Client | null>(null);
 
@@ -24,13 +25,20 @@ export const useDocWebSocket = (
             const updatedFile: PDFDocument = JSON.parse(message.body);
             console.log('📄 Document update:', updatedFile);
             console.log('Available for signing:', updatedFile.availableForSigning);
-            onFileUpdate(updatedFile);
+            onFileUpdate?.(updatedFile);
           } catch (error) {
             console.error('❌ Parse error:', error);
           }
         });
         
         console.log('✅ Subscribed to /topic/doc-updates');
+
+
+        client.subscribe('topic/notif-updates', (message: Message) => { 
+          const unreadCount = Number(message.body);
+          onNotifUpdate?.(unreadCount)
+
+        })
       },
       
       onDisconnect: (frame) => {

@@ -173,6 +173,9 @@ function UserPdfSigner({ preloadedDocument, onClose }: UserPdfSignerProps) {
     (signatures.find(sig => sig.default)?.signatureType || signatures[0]?.signatureType || '') as 'INITIAL' | 'FULL' | ''
   );
 
+  const [isInitializing, setIsInitializing] = useState(false);
+  const hasInitializedRef = useRef(false);
+
   const [pagination, setPagination] = useState<PaginationInfo>({
     currentPage: 1,
     totalPages: 1,
@@ -217,39 +220,76 @@ function UserPdfSigner({ preloadedDocument, onClose }: UserPdfSignerProps) {
         setSignatureImg(null);
         setCurrentPage(1);
         
-        toast.success(`Loaded document: ${doc.fileName}`);
+        //toast.success(`Loaded document: ${doc.fileName}`);
       } catch (error) {
         console.error('Error loading PDF:', error);
-        toast.error('Failed to load PDF document');
+        //toast.error('Failed to load PDF document');
       } finally {
         setIsLoadingPdf(false);
       }
   };
 
-  // Effect to load document based on props/state
-  useEffect(() => {
-    // Priority 1: Use preloadedDocument prop (from Dialog modal)
-    if (preloadedDocument) {
-      loadDocumentForSigning(preloadedDocument);
-      setSelectedDocument(preloadedDocument);
+
+
+useEffect(() => {
+  const initializeDocument = async () => {
+    // Prevent multiple initializations
+    if (hasInitializedRef.current) return;
+    
+    setIsInitializing(true);
+    hasInitializedRef.current = true;
+    
+    try {
+      console.log('Initializing document with:', { 
+        preloadedDocument: !!preloadedDocument, 
+        documentFromState: !!documentFromState, 
+        id 
+      });
+      
+      // Priority 1: Use preloadedDocument prop (from Dialog modal)
+      if (preloadedDocument) {
+        console.log('Using preloaded document');
+        await loadDocumentForSigning(preloadedDocument);
+        setSelectedDocument(preloadedDocument);
+      }
+      // Priority 2: Use document from route state
+      else if (documentFromState) {
+        console.log('Using document from route state');
+        await loadDocumentForSigning(documentFromState);
+      }
+      // Priority 3: Fetch by ID from URL parameter
+      else if (id) {
+        console.log('Fetching document by ID:', id);
+        await loadDocumentById(id);
+      }
+    } catch (error) {
+      console.error('Error initializing document:', error);
+      // Reset ref to allow retry on error
+      hasInitializedRef.current = false;
+    } finally {
+      setIsInitializing(false);
     }
-    // Priority 2: Use document from route state
-    else if (documentFromState) {
-      loadDocumentForSigning(documentFromState);
-    }
-    // Priority 3: Fetch by ID from URL parameter
-    else if (id) {
-      loadDocumentById(id);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, documentFromState, preloadedDocument]);
+  };
+
+  initializeDocument();
+  
+  // Reset when component unmounts
+  return () => {
+    hasInitializedRef.current = false;
+  };
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [id, documentFromState, preloadedDocument]);
+
+
+
 
   const loadDocumentById = async (documentId: string) => {
     try {
       const response = await api.get(`v1/documents/${documentId}`);
-      loadDocumentForSigning(response.data);
+      await loadDocumentForSigning(response.data);
     } catch (error) {
       toast.error('Failed to load document');
+      throw error;
     }
   };
 
@@ -911,7 +951,7 @@ function UserPdfSigner({ preloadedDocument, onClose }: UserPdfSignerProps) {
       setSignatureImg(null);
       setCurrentPage(1);
       
-      toast.success(`Loaded document: ${selectedDocument.fileName}`);
+      //toast.success(`Loaded document: ${selectedDocument.fileName}`);
     } catch (error) {
       console.error('Error loading PDF:', error);
       toast.error('Failed to load PDF document');
@@ -1023,6 +1063,17 @@ const handleSignatureSelection = async (signature: Signature) => {
 
   return (
     <>
+      {(isInitializing || isLoadingPdf) && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-xl">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#19183B] mx-auto"></div>
+            <p className="mt-4 text-center">
+              {isInitializing ? 'Loading document...' : 'Loading PDF content...'}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="relative min-h-screen overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat filter blur-md"
@@ -1529,8 +1580,8 @@ const handleSignatureSelection = async (signature: Signature) => {
       {/* Copy Mode Dialog */}
       <Dialog.Root open={copyModeDialogOpen} onOpenChange={setCopyModeDialogOpen}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border-2 border-[#A1C2BD] flex flex-col sm:max-w-md">
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 z-50 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border-2 border-[#A1C2BD] flex flex-col sm:max-w-md">
             <Dialog.Title className="flex items-center gap-2 text-xl font-bold text-[#19183B] mb-4">
               <div className="p-2 bg-[#A1C2BD] rounded-lg">
                 <Copy className="w-5 h-5 text-[#19183B]" />

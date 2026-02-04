@@ -1,9 +1,10 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useAuth } from '@/auth/useAuth';
 import { useSettings } from '@/hooks/useSettings';
 import { Files, Gauge, HatGlasses, Headset, Share2, Unplug, Users } from 'lucide-react';
+import { useDocWebSocket } from '@/hooks/useDocWebSocket';
+import api from '@/api/axiosInstance';
 
 interface SidebarProps {
   children?: React.ReactNode;
@@ -16,6 +17,7 @@ interface MenuItem {
   children?: MenuItem[];
   isOpen?: boolean;
   type?: 'divider';
+  badge?: string | number | null;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ children }) => {
@@ -23,14 +25,38 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { isFullScreen } = useSettings();
 
+  const [notificationCount, setNotificationCount] = useState<number>(0);
+  const [notificationMenuItems, setNotificationMenuItems] = useState<MenuItem[]>([]);
 
+  useEffect(() => {
+    const fetchNotificationCount = async () => {
+      try {
+        if (!user?.id) return;
+        
+        const response = await api.get(`v1/notifications/unread-count/${user.id}`);
+        console.log('Fetched notification count:', response.data);
+        setNotificationCount(response.data);
+      } catch (error) {
+        console.error('Failed to fetch notification count:', error);
+        setNotificationCount(0);
+      }
+    };
 
+    fetchNotificationCount();
+    const interval = setInterval(fetchNotificationCount, 3000); // Poll every 30 seconds
+    
+    return () => clearInterval(interval);
+  }, [user?.id]);
 
+  const handleNotificationUpdate = useCallback((count: number) => {
+    console.log('WebSocket notification update:', count);
+    setNotificationCount(count);
+  }, []);
 
-
+  useDocWebSocket(undefined, handleNotificationUpdate);
 
   // Define menu items for admin
-  const menusForAdmin : MenuItem[] = [
+  const menusForAdmin: MenuItem[] = [
     {
       icon: <Gauge />,
       label: 'Dashboard',
@@ -57,14 +83,10 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
       label: 'API Connect',
       path: '/connect',
     },
-  ]
-
-
-
-
+  ];
 
   // Define menu items for regular user
-  const menusForUser : MenuItem[] = [
+  const menusForUser: MenuItem[] = [
     {
       icon: <Files />,
       label: 'My Documents',
@@ -88,6 +110,7 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
       ),
       label: 'Notifications',
       path: '/notifications',
+      badge: notificationCount > 0 ? notificationCount : null, // Use null instead of undefined
     },
     {
       icon: (
@@ -107,12 +130,27 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
       label: 'Certificates',
       path: '/certificates',
     }
-  ]
-  
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(
-    user?.roles?.includes('ROLE_ADMIN') ? menusForAdmin : menusForUser
-  );
-  
+  ];
+
+  // Update menu items whenever notificationCount changes
+  useEffect(() => {
+    const isAdmin = user?.roles?.includes('ROLE_ADMIN');
+    const baseMenu = isAdmin ? menusForAdmin : menusForUser;
+    
+    // Update the notification menu item with current count
+    const updatedMenu = baseMenu.map(item => {
+      if (item.label === 'Notifications') {
+        return {
+          ...item,
+          badge: notificationCount > 0 ? notificationCount : null
+        };
+      }
+      return item;
+    });
+    
+    setNotificationMenuItems(updatedMenu);
+  }, [notificationCount, user?.roles]);
+
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -130,7 +168,7 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
   const toggleSubMenu = (index: number) => {
     if (isCollapsed) return;
     
-    setMenuItems(prev => prev.map((item, i) => {
+    setNotificationMenuItems(prev => prev.map((item, i) => {
       if (i === index && item.children) {
         return { ...item, isOpen: !item.isOpen };
       }
@@ -148,12 +186,11 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
 
   // Function to get user initials from username
   const getUserInitials = () => {
-    if (!user?.username) return 'AU'; // Fallback to 'AU' if no username
+    if (!user?.username) return 'AU';
     
     const username = user.username.trim();
     if (username.length === 0) return 'AU';
     
-    // Get first letter of the username
     return username.charAt(0).toUpperCase();
   };
 
@@ -161,23 +198,36 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
     const hasChildren = item.children && item.children.length > 0;
     const isItemActive = item.path ? isActive(item.path) : false;
     const hasActiveChild = item.children?.some(child => child.path && isActive(child.path));
+    const hasBadge = item.badge !== null && item.badge !== undefined && item.badge !== 0;
 
     if (item.type === 'divider') {
       return <hr key={`divider-${index}`} className="my-3 border-t border-[#2a2850] opacity-60" />;
     }
 
     return (
-      <div key={item.label} className="space-y-1">
+      <div key={item.label || index} className="space-y-1">
         <button
           onClick={() => handleMenuItemClick(item, index)}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+          className={`relative w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
             isItemActive || hasActiveChild
               ? 'bg-[#A1C2BD] text-[#19183B] font-semibold shadow-lg'
               : 'text-white hover:bg-[#2a2850]'
           } ${level > 0 ? 'ml-4' : ''}`}
           title={isCollapsed ? item.label : ''}
         >
-          {item.icon}
+          <div className="relative">
+            {item.icon}
+            {hasBadge && (
+              <div className={`
+                absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full 
+                bg-red-500 text-xs text-white font-bold px-1 z-10
+                ${isCollapsed ? '-right-1' : ''}
+              `}>
+                {typeof item.badge === 'number' && item.badge > 99 ? '99+' : item.badge}
+              </div>
+            )}
+          </div>
+          
           {!isCollapsed && (
             <>
               <span className="flex-1 text-left">{item.label}</span>
@@ -198,9 +248,9 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
         {/* Sub-menu items */}
         {!isCollapsed && hasChildren && item.isOpen && (
           <div className="space-y-1">
-            {item.children?.map((child, _childIndex) => (
+            {item.children?.map((child, childIndex) => (
               <button
-                key={child.label}
+                key={child.label || childIndex}
                 onClick={() => child.path && navigate(child.path)}
                 className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all ml-4 ${
                   isActive(child.path || '')
@@ -255,7 +305,7 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-1">
-            {menuItems.map((item, index) => renderMenuItem(item, index))}
+            {notificationMenuItems.map((item, index) => renderMenuItem(item, index))}
           </nav>
 
           {/* User Section */}
