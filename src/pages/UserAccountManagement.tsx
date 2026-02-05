@@ -7,7 +7,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Checkbox } from "@/components/ui/checkbox"
 import toast from 'react-hot-toast';
 
-import { ChevronDown, Check, Pencil, Trash2, X, Plus, Search, ChevronLeft, ChevronRight, User, Mail, Key, Shield } from 'lucide-react';
+import { ChevronDown, Check, Pencil, Trash2, X, Search, ChevronLeft, ChevronRight, User, Mail, Key, Shield } from 'lucide-react';
 
 import api from '@/api/axiosInstance';
 import type { Role } from '@/types/auth';
@@ -17,10 +17,23 @@ interface UserAccount {
   username: string;
   email: string;
   password: string;
-  role: 'ROLE_ADMIN' | 'ROLE_USER';
+  role:[
+  {
+    id: number,
+    name: string;
+   }
+  ];
+
   roles: Role[];
   createdAt: string;
   updatedAt: string;
+}
+
+interface Employee {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
 }
 
 interface PaginationInfo {
@@ -31,6 +44,18 @@ interface PaginationInfo {
   offset: number;
 }
 
+// Helper function to properly encode/decode special characters
+const fixSpecialCharacters = (str: string): string => {
+  if (!str) return str;
+  
+  try {
+    // First try to decode any encoded characters
+    return decodeURIComponent(str);
+  } catch {
+    // If decoding fails, return the original string
+    return str;
+  }
+};
 
 const UserAccountManagement: React.FC = () => {
   const [users, setUsers] = useState<UserAccount[]>([]);
@@ -44,15 +69,22 @@ const UserAccountManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  // Employee searchable dropdown state
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
+  const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
+
   // Form state
-    const [username, setUsername] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-  
-    const [isUser, setIsUser] = useState(false);
-    const [isAdmin, setIsAdmin] = useState(false);
-  
-    const [isSubmitting, setIsSubmitting] = useState(false);
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const [isUser, setIsUser] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Available items per page options
   const itemsPerPageOptions = [5, 10, 25, 50, 100];
@@ -66,29 +98,123 @@ const UserAccountManagement: React.FC = () => {
     offset: 0,
   });
 
+  // Load employees from API with debounced search
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (employeeSearch.trim() && !selectedEmployee) {
+        fetchEmployees(employeeSearch);
+      } else if (!employeeSearch.trim()) {
+        setEmployees([]);
+        setShowEmployeeDropdown(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [employeeSearch, selectedEmployee]);
+
+  const fetchEmployees = async (search: string) => {
+    setIsLoadingEmployees(true);
+    try {
+      // Create URLSearchParams to properly encode the search parameter
+      const params = new URLSearchParams();
+      params.append('search', search);
+      
+      const response = await api.get(`v1/employees/?${params.toString()}`);
+      
+      // Process the response data to fix encoding issues
+      const processedData = response.data.map((emp: Employee) => ({
+        ...emp,
+        firstName: fixSpecialCharacters(emp.firstName || ''),
+        lastName: fixSpecialCharacters(emp.lastName || ''),
+        email: fixSpecialCharacters(emp.email || '')
+      }));
+      
+      setEmployees(processedData);
+      setShowEmployeeDropdown(true);
+    } catch (error: any) {
+      console.error('Error fetching employees:', error);
+      
+      // Try alternative approach if first fails
+      try {
+        const altResponse = await api.get("/api/v1/employees/", {
+          params: { search },
+          paramsSerializer: (params) => {
+            return Object.keys(params)
+              .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+              .join('&');
+          }
+        });
+        
+        const processedData = altResponse.data.map((emp: Employee) => ({
+          ...emp,
+          firstName: fixSpecialCharacters(emp.firstName || ''),
+          lastName: fixSpecialCharacters(emp.lastName || ''),
+          email: fixSpecialCharacters(emp.email || '')
+        }));
+        
+        setEmployees(processedData);
+        setShowEmployeeDropdown(true);
+      } catch (altError) {
+        console.error('Alternative fetch also failed:', altError);
+        toast.error('Failed to search employees');
+        setEmployees([]);
+        setShowEmployeeDropdown(false);
+      }
+    } finally {
+      setIsLoadingEmployees(false);
+    }
+  };
+
+  const handleEmployeeSelect = (employee: Employee) => {
+    setSelectedEmployee(employee);
+    setEmployeeSearch(`${employee.firstName} ${employee.lastName}`);
+    
+    // Extract username from email (everything before @)
+    const emailParts = employee.email.split('@');
+    const usernameFromEmail = emailParts[0] || employee.email;
+    setUsername(usernameFromEmail);
+    
+    setEmail(employee.email);
+    setShowEmployeeDropdown(false);
+  };
+
+  const clearEmployeeSelection = () => {
+    setSelectedEmployee(null);
+    setEmployeeSearch('');
+    setUsername('');
+    setEmail('');
+  };
+
   // Load users from API
   const loadUsers = async (page: number = pagination.currentPage, limit: number = pagination.itemsPerPage) => {
     setIsLoading(true);
     try {
-      const params = {
-        page,
-        limit,
-        ...(searchTerm && { search: searchTerm })
-      };
-
-      const response = await api.get("v1/users", { params });
-      const data = response.data;
-
-      console.log("API Response:", data); // Debug log
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+      });
       
-      setUsers(response.data.data);
+      if (searchTerm) {
+        params.append('search', searchTerm);
+      }
+
+      const response = await api.get(`v1/users?${params.toString()}`);
+      
+      // Process the user data to fix encoding issues
+      const processedUsers = response.data.data.map((user: UserAccount) => ({
+        ...user,
+        username: fixSpecialCharacters(user.username || ''),
+        email: fixSpecialCharacters(user.email || '')
+      }));
+      
+      setUsers(processedUsers);
 
       setPagination(prev => ({
         ...prev,
         currentPage: response.data.total.currentPage,
         totalPages: response.data.total.totalPages,
         totalItems: response.data.total.totalItems,
-        itemsPerPage: response.data.total.itemsPerPage, // Fixed: was pageSize, now itemsPerPage
+        itemsPerPage: response.data.total.itemsPerPage,
       }));
       
       // Clear selections when data changes
@@ -150,9 +276,18 @@ const UserAccountManagement: React.FC = () => {
       if (isUser) roles.push("ROLE_USER")
       if (isAdmin) roles.push("ROLE_ADMIN")
       
-      const response = await api.post("auth/register", {
-        username, email, password, roles
-      })
+      // Create FormData for better encoding handling
+      const formData = new FormData();
+      formData.append('username', username);
+      formData.append('email', email);
+      formData.append('password', password);
+      formData.append('roles', JSON.stringify(roles));
+      
+      const response = await api.post("auth/register", formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data; charset=utf-8',
+        }
+      });
 
       if (response.status === 200 ) {
         // Reload the current page to show the new user
@@ -182,11 +317,19 @@ const UserAccountManagement: React.FC = () => {
       if (isUser) roles.push("ROLE_USER")
       if (isAdmin) roles.push("ROLE_ADMIN")
 
-      const response = await api.put(`v1/users/${selectedUser.id}`, {
-        username,
-        email,
-        ...(password && { password }),
-        roles
+      // Create FormData for better encoding handling
+      const formData = new FormData();
+      formData.append('username', username);
+      formData.append('email', email);
+      if (password) {
+        formData.append('password', password);
+      }
+      formData.append('roles', JSON.stringify(roles));
+
+      const response = await api.put(`v1/users/${selectedUser.id}`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data; charset=utf-8',
+        }
       });
 
       if (response.status === 200) {
@@ -256,6 +399,8 @@ const UserAccountManagement: React.FC = () => {
     setIsUser(false)
     setIsAdmin(false)
     setSelectedUser(null);
+    setSelectedEmployee(null);
+    setEmployeeSearch('');
   };
 
   const openEditDialog = (user: UserAccount) => {
@@ -345,13 +490,13 @@ const UserAccountManagement: React.FC = () => {
               </div>
               <p className="text-[#708993] ml-14">Create, manage, and organize user accounts</p>
             </div>
-            <button
+            {/*<button
               onClick={() => setCreateDialogOpen(true)}
               className="flex items-center gap-2 bg-[#19183B] text-white px-6 py-3 rounded-xl font-semibold hover:bg-[#708993] transition-colors shadow-lg"
             >
               <Plus className="w-5 h-5" />
               Add User
-            </button>
+            </button>*/}
           </div>
         </div>
 
@@ -483,19 +628,15 @@ const UserAccountManagement: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 text-[#19183B]">{user.email}</td>
                       <td className="px-6 py-4">
-                        {user.roles && user.roles.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {user.roles.map((role: any, index) => (
-                              <span 
-                                key={role.id || index} 
-                                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(role.name)}`}
-                              >
-                                <Shield className="w-3 h-3" />
-                                {role.name.replace('ROLE_', '')}
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                        {user.role.map(r => (
+                          <span 
+                            key={r.id} 
+                            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(r.name)}`}
+                          >
+                            <Shield className="w-3 h-3" />
+                            {r.name}
+                          </span>
+                        )) }
                       </td>
                       <td className="px-6 py-4 text-sm text-[#708993]">
                         {new Date(user.createdAt).toLocaleDateString()}
@@ -597,6 +738,74 @@ const UserAccountManagement: React.FC = () => {
             </Dialog.Title>
 
             <Form.Root onSubmit={handleCreateSubmit} className="space-y-5">
+              {/* Employee Search Field */}
+              <Form.Field name="employee">
+                <div className="flex items-baseline justify-between mb-2">
+                  <Form.Label className="text-sm font-semibold text-[#19183B] flex items-center gap-2">
+                    <User className="w-4 h-4" />
+                    Select Employee
+                  </Form.Label>
+                </div>
+                <div className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#708993] w-5 h-5" />
+                    <input
+                      type="text"
+                      placeholder="Search for employee by name or email..."
+                      value={employeeSearch}
+                      onChange={(e) => setEmployeeSearch(e.target.value)}
+                      onFocus={() => {
+                        if (employeeSearch.trim() && employees.length > 0 && !selectedEmployee) {
+                          setShowEmployeeDropdown(true);
+                        }
+                      }}
+                      className="w-full pl-10 pr-10 py-3 border-2 border-[#A1C2BD] rounded-xl focus:ring-2 focus:ring-[#708993] focus:border-[#708993] outline-none transition-all"
+                    />
+                    {selectedEmployee && (
+                      <button
+                        type="button"
+                        onClick={clearEmployeeSelection}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[#708993] hover:text-red-600"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* Employee Dropdown */}
+                  {showEmployeeDropdown && !selectedEmployee && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border-2 border-[#A1C2BD] rounded-xl shadow-lg max-h-64 overflow-y-auto">
+                      {isLoadingEmployees ? (
+                        <div className="p-4 text-center">
+                          <div className="inline-block w-6 h-6 border-2 border-[#A1C2BD] border-t-[#19183B] rounded-full animate-spin"></div>
+                          <p className="mt-2 text-sm text-[#708993]">Searching employees...</p>
+                        </div>
+                      ) : employees.length === 0 ? (
+                        <div className="p-4 text-center text-[#708993]">
+                          {employeeSearch.trim() ? 'No employees found' : 'Start typing to search employees'}
+                        </div>
+                      ) : (
+                        <div className="py-1">
+                          {employees.map((employee) => (
+                            <button
+                              key={employee.id}
+                              type="button"
+                              onClick={() => handleEmployeeSelect(employee)}
+                              className="w-full px-4 py-3 text-left hover:bg-[#E7F2EF] transition-colors border-b border-[#A1C2BD]/30 last:border-b-0"
+                            >
+                              <div className="font-medium text-[#19183B]">
+                                {employee.firstName} {employee.lastName}
+                              </div>
+                              <div className="text-sm text-[#708993]">{employee.email}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </Form.Field>
+
               <Form.Field name="username">
                 <div className="flex items-baseline justify-between mb-2">
                   <Form.Label className="text-sm font-semibold text-[#19183B] flex items-center gap-2">
