@@ -412,26 +412,22 @@ export default function UserPdfVerifierv2({ preloadedDocument }: UserPdfVerifier
                           </CardHeader>
                           <CardContent className="space-y-4 text-sm">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              
                               <div className="space-y-1">
                                 <span className="font-medium text-[#19183B]">Signer:</span>
                                 <p className="text-[#708993]">{sig.signerName || 'Unknown'}</p>
                               </div>
+
                               <div className="space-y-1">
-                                <span className="font-medium text-[#19183B]">Location:</span>
-                                <p className="text-[#708993]">{sig.location || 'Not specified'}</p>
+                                <div className='flex gap-1'>
+                                  <Clock className="w-4 h-4 text-[#708993]" />
+                                  <span className="font-medium text-[#19183B]">Signed:</span>
+                                </div>
+                                <p className="text-[#708993]">{formatDate(sig.signDate)}</p>
                               </div>
+                            
                             </div>
 
-                            <div className="space-y-1">
-                              <span className="font-medium text-[#19183B]">Reason:</span>
-                              <p className="text-[#708993]">{sig.reason || 'Not specified'}</p>
-                            </div>
-
-                            <div className="flex items-center gap-3 pt-3 border-t border-[#A1C2BD]/30">
-                              <Clock className="w-4 h-4 text-[#708993]" />
-                              <span className="font-medium text-[#19183B]">Signed:</span>
-                              <span className="text-[#708993]">{formatDate(sig.signDate)}</span>
-                            </div>
 
                             {sig.hasTimestamp && sig.timestampDate && (
                               <div className="flex items-center gap-3 bg-blue-50 p-3 rounded-lg border border-blue-200">

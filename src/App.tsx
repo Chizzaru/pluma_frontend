@@ -1,6 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 
-import PdfSigner from "./pages/PdfSigner";
 import BatchPdfSigner from "./BatchPdfSigner";
 import AuditLogViewer from "./AuditLogViewer";
 import SignatureManagement from "./pages/SignatureManagement";
@@ -10,8 +9,7 @@ import CertificateManagement from "./pages/CertificateManagement";
 import UserAccountManagement from "./pages/UserAccountManagement";
 import UploadManager from "./pages/UploadManager";
 import Pluma from "./pages/Pluma";
-import AboutUs from "./pages/AboutUs";
-import PdfVerifierv2 from "./pages/PdfVerifierv2";
+import AboutUs from "./pages/AboutUs"
 import UserPdfVerifierv2 from "./user/UserPdfVerifierv2";
 import UserPdfSigner from "./user/UserPdfSigner";
 import { Toaster } from "react-hot-toast";
@@ -52,10 +50,7 @@ function App() {
           {/* Public Routes */}
           <Route path="/" element={<Pluma />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/public-sign" element={<PdfSigner />} />
-          <Route path="/public-verifierv2" element={<PdfVerifierv2 />} />
           <Route path="/public-about-us" element={<AboutUs />} />
-          <Route path="/public-verifier" element={<PdfVerifierv2 />} />
 
           {/* ---------------- Protected Routes ---------------- */}
 

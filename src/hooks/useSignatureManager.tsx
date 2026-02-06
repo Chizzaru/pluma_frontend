@@ -2,6 +2,7 @@
 import { useState } from 'react';
 
 interface Rect {
+  rotation: number;
   x: number;
   y: number;
   width: number;

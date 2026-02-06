@@ -13,8 +13,9 @@ import {
   Eye,
   Key,
   Copy,
+  RotateCw,
+  Maximize2
 } from "lucide-react";
-
 import { useSettings } from "@/hooks/useSettings";
 import * as Dialog from "@radix-ui/react-dialog";
 import api from "@/api/axiosInstance";
@@ -25,18 +26,16 @@ import type { RenderTask } from "pdfjs-dist";
 import { usePdfLoader } from "@/hooks/usePdfLoader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-// Hooks
 import { useSignatureManager } from "@/hooks/useSignatureManager";
 import { useFileDownload } from "@/hooks/useFileDownload";
 import type { Role } from "@/types/auth";
 import { useSignaturePreview } from "@/hooks/useSignaturePreview";
 import { useAuthImage } from "@/hooks/useAuthImage";
-
-
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 
 GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdf.worker.min.mjs`;
+
+// ==================== Types ====================
 
 interface SignatureCardPreviewProps {
   previewUrl: string;
@@ -45,41 +44,6 @@ interface SignatureCardPreviewProps {
 interface UserPdfSignerProps {
   preloadedDocument?: PDFDocument;
   onClose?: () => void;
-}
-
-
-const SignatureCardPreview: React.FC<SignatureCardPreviewProps> = ({ previewUrl }) => {
-  const isLocal = previewUrl.startsWith("blob:") || previewUrl.startsWith("data:");
-  const { imageSrc, loading, error } = useAuthImage({
-    url: previewUrl
-  })
-
-  const finalSrc = isLocal ? previewUrl : imageSrc;
-
-  if (isLocal) {
-    return (
-      <img
-        src={finalSrc ?? undefined}
-        alt="Preview"
-        className="max-h-32 object-contain"
-      />
-    );
-  }
-
-  return (
-    <>
-      {/* Image Section */}
-      {loading && <span className="text-sm text-gray-400 animate-pulse">Loading...</span>}
-      {error && <span className="text-sm text-red-500">Failed to load</span>}
-      {!loading && !error && finalSrc && (
-        <img
-          src={finalSrc}
-          alt="Preview"
-          className="max-h-32 object-contain"
-        />
-      )}
-    </>
-  )
 }
 
 interface PDFDocument {
@@ -105,6 +69,7 @@ interface Rect {
   y: number;
   width: number;
   height: number;
+  rotation?: number;
 }
 
 interface Signature {
@@ -118,63 +83,95 @@ interface Signature {
 }
 
 interface CertificateHash {
-  certificateHash: string,
-  expiresAt: string
+  certificateHash: string;
+  expiresAt: string;
 }
 
+//type RotationAngle = 0 | 90 | 180 | 270;
+
+// ==================== Helper Components ====================
+
+const SignatureCardPreview: React.FC<SignatureCardPreviewProps> = ({ previewUrl }) => {
+  const isLocal = previewUrl.startsWith("blob:") || previewUrl.startsWith("data:");
+  const { imageSrc, loading, error } = useAuthImage({ url: previewUrl });
+
+  const finalSrc = isLocal ? previewUrl : imageSrc;
+
+  if (isLocal) {
+    return (
+      <img
+        src={finalSrc ?? undefined}
+        alt="Preview"
+        className="max-h-32 object-contain"
+      />
+    );
+  }
+
+  return (
+    <>
+      {loading && <span className="text-sm text-gray-400 animate-pulse">Loading...</span>}
+      {error && <span className="text-sm text-red-500">Failed to load</span>}
+      {!loading && !error && finalSrc && (
+        <img src={finalSrc} alt="Preview" className="max-h-32 object-contain" />
+      )}
+    </>
+  );
+};
+
+// ==================== Main Component ====================
+
 function UserPdfSigner({ preloadedDocument, onClose }: UserPdfSignerProps) {
+  const { id } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const documentFromState = location.state?.document;
 
-    const { id } = useParams();
-    const location = useLocation();
-    const navigate = useNavigate();
-    const documentFromState = location.state?.document;
-
-  
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rectRef = useRef<Rect | null>(null);
-  
-  // State
+  const hasInitializedRef = useRef(false);
+
+  // ==================== State ====================
+
+  // Drawing & Interaction State
   const [isDrawing, setIsDrawing] = useState(false);
-  const [startPos, setStartPos] = useState<{ x: number; y: number; xOffset?: number; yOffset?: number } | null>(null);
-  const [pageImage, setPageImage] = useState<HTMLImageElement | null>(null);
-  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
-  const [certificatePassword, setCertificatePassword] = useState<string>("");
-  const [canvasWidth, setCanvasWidth] = useState<number>(0);
-  const [canvasHeight, setCanvasHeight] = useState<number>(0);
   const [isDraggingSignature, setIsDraggingSignature] = useState(false);
   const [isHoveringSignature, setIsHoveringSignature] = useState(false);
+  const [isResizingSignature, setIsResizingSignature] = useState(false);
+  const [isRotatingSignature, setIsRotatingSignature] = useState(false);
+  const [resizeDirection, setResizeDirection] = useState<string | null>(null);
+  const [startPos, setStartPos] = useState<{ x: number; y: number; xOffset?: number; yOffset?: number } | null>(null);
+
+  // Document State
+  const [pdfFile, setPdfFile] = useState<File | Blob | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<PDFDocument | null>(null);
+  const [documents, setDocuments] = useState<PDFDocument[]>([]);
+  const [pageImage, setPageImage] = useState<HTMLImageElement | null>(null);
+  const [canvasWidth, setCanvasWidth] = useState<number>(0);
+  const [canvasHeight, setCanvasHeight] = useState<number>(0);
+
+  // Signature State
+  const [signatures, setSignatures] = useState<Signature[]>([]);
+  const [selectedSignature, setSelectedSignature] = useState<Signature | null>(null);
+  const [selectedSignatureType, setSelectedSignatureType] = useState<'INITIAL' | 'FULL' | ''>('');
+
+  // Certificate State
+  const [certHash, setCertHash] = useState<CertificateHash | null>(null);
+  const [certificatePassword, setCertificatePassword] = useState<string>("");
+
+  // Dialog State
+  const [chooseFileDialogOpen, setChooseFileDialogOpen] = useState(false);
+  const [chooseSignatureTypeDialogOpen, setChooseSignatureTypeDialogOpen] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [copyModeDialogOpen, setCopyModeDialogOpen] = useState(false);
+  const [isFabOpen, setIsFabOpen] = useState(false);
+
+  // UI State
+  const [searchTerm, setSearchTerm] = useState("");
   const [copyToPages, setCopyToPages] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState<boolean>(false);
-  const [pdfFile, setPdfFile] = useState<File | Blob | null>(null);
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
-
-  const [certHash, setCertHash] = useState<CertificateHash | null>(null)
-
-  const { isFullScreen, handleFullScreen } = useSettings();
-  const { downloadFile } = useFileDownload();
-
-  const [chooseFileDialogOpen, setChooseFileDialogOpen] = useState(false);
-  const [chooseSignatureTypeDialogOpen, setChooseSignatureTypeDialogOpen] = useState(false)
-  const [documents, setDocuments] = useState<PDFDocument[]>([]);
-  const [selectedDocument, setSelectedDocument] = useState<PDFDocument | null>(null);
-  const [selectedSignature, setSelectedSignature] = useState<Signature | null>(null)
-  const [searchTerm, setSearchTerm] = useState("");
-
-  const { user } = useAuth();
-  // Removed unused destructuring from useSignaturePreview
-  useSignaturePreview();
-  const [isFabOpen, setIsFabOpen] = useState(false);
-
-  const [signatures, setSignatures] = useState<Signature[]>([])
-
-  const [selectedSignatureType, setSelectedSignatureType] = useState<'INITIAL' | 'FULL' | ''>(
-    (signatures.find(sig => sig.default)?.signatureType || signatures[0]?.signatureType || '') as 'INITIAL' | 'FULL' | ''
-  );
-
   const [isInitializing, setIsInitializing] = useState(false);
-  const hasInitializedRef = useRef(false);
 
   const [pagination, setPagination] = useState<PaginationInfo>({
     currentPage: 1,
@@ -184,7 +181,13 @@ function UserPdfSigner({ preloadedDocument, onClose }: UserPdfSignerProps) {
     offset: 0,
   });
 
-  // Use pdfFile state to load PDF
+  // ==================== Hooks ====================
+
+  const { isFullScreen, handleFullScreen } = useSettings();
+  const { downloadFile } = useFileDownload();
+  const { user } = useAuth();
+  useSignaturePreview();
+
   const { pdf, currentPage, setCurrentPage } = usePdfLoader(pdfFile);
 
   const {
@@ -202,664 +205,35 @@ function UserPdfSigner({ preloadedDocument, onClose }: UserPdfSignerProps) {
 
   const currentSignaturePosition = signaturePlacements.get(currentPage) || null;
 
-  // Create a function to load the document
-  const loadDocumentForSigning = async (doc: PDFDocument) => {
-      setIsLoadingPdf(true);
-      try {
-        setSelectedDocument(doc);
-        
-        const response = await api.get("v1/documents/view/" + doc.filePath, {
-          responseType: 'blob'
-        });
-        
-        const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
-        setPdfFile(pdfBlob);
-        
-        // Reset signature state
-        setSignaturePlacements(new Map());
-        setSignatureImg(null);
-        setCurrentPage(1);
-        
-        //toast.success(`Loaded document: ${doc.fileName}`);
-      } catch (error) {
-        console.error('Error loading PDF:', error);
-        //toast.error('Failed to load PDF document');
-      } finally {
-        setIsLoadingPdf(false);
-      }
-  };
-
-
-
-useEffect(() => {
-  const initializeDocument = async () => {
-    // Prevent multiple initializations
-    if (hasInitializedRef.current) return;
-    
-    setIsInitializing(true);
-    hasInitializedRef.current = true;
-    
-    try {
-      console.log('Initializing document with:', { 
-        preloadedDocument: !!preloadedDocument, 
-        documentFromState: !!documentFromState, 
-        id 
-      });
-      
-      // Priority 1: Use preloadedDocument prop (from Dialog modal)
-      if (preloadedDocument) {
-        console.log('Using preloaded document');
-        await loadDocumentForSigning(preloadedDocument);
-        setSelectedDocument(preloadedDocument);
-      }
-      // Priority 2: Use document from route state
-      else if (documentFromState) {
-        console.log('Using document from route state');
-        await loadDocumentForSigning(documentFromState);
-      }
-      // Priority 3: Fetch by ID from URL parameter
-      else if (id) {
-        console.log('Fetching document by ID:', id);
-        await loadDocumentById(id);
-      }
-    } catch (error) {
-      console.error('Error initializing document:', error);
-      // Reset ref to allow retry on error
-      hasInitializedRef.current = false;
-    } finally {
-      setIsInitializing(false);
-    }
-  };
-
-  initializeDocument();
-  
-  // Reset when component unmounts
-  return () => {
-    hasInitializedRef.current = false;
-  };
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [id, documentFromState, preloadedDocument]);
-
-
-
-
-  const loadDocumentById = async (documentId: string) => {
-    try {
-      const response = await api.get(`v1/documents/${documentId}`);
-      await loadDocumentForSigning(response.data);
-    } catch (error) {
-      toast.error('Failed to load document');
-      throw error;
-    }
-  };
-
-  useEffect(() => {
-    loadDefaultCert()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  
-  const loadDefaultCert = async () => {
-    try {
-      const response = await api.get("v1/certificates/default", { params: { user_id: user?.id } })
-      const data = response.data
-      if (isExpired(data.expiresAt)) {
-        toast.error("Expired default certificate")
-        return
-      }
-      setCertHash(data)
-    } catch {
-      toast.error("No default certificate found")
-    }
-  }
+  // ==================== Helper Functions ====================
 
   const isExpired = (expiresAt: string) => {
     return new Date(expiresAt) < new Date();
   };
 
-  // Reset function to clear all state after successful submission
-  const resetAfterSuccess = () => {
-    setPdfFile(null);
-    setSelectedDocument(null);
-    setSignaturePlacements(new Map());
-    setSignatureImg(null);
-    setSignatureFile(null);
-    setSelectedSignature(null);
-    setSelectedSignatureType('');
-    rectRef.current = null;
-    setCurrentPage(1);
-    setCertificatePassword("");
-    setError(null);
-
-    // Navigate back if we have onClose or came from navigation
-    if (onClose) {
-      onClose();
-    } else {
-      navigate(-1); // Go back to previous page
-    }
+  const formatFileSize = (bytes: string) => {
+    const size = parseInt(bytes);
+    if (size === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(size) / Math.log(k));
+    return parseFloat((size / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
-  // Cleanup effect
-  useEffect(() => {
-    return () => {
-      // Clean up canvas
-      if (canvasRef.current) {
-        const ctx = canvasRef.current.getContext('2d');
-        if (ctx) {
-          ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        }
-      }
-      
-      // Clean up image
-      if (signatureImg) {
-        URL.revokeObjectURL(signatureImg.src);
-      }
-      
-      // Clean up page image
-      if (pageImage) {
-        URL.revokeObjectURL(pageImage.src);
-      }
-    };
-  }, [signatureImg, pageImage]);
-
-  // PDF Rendering Effect - FIXED VERSION
-  useEffect(() => {
-    if (!pdf || !canvasRef.current) {
-      return;
-    }
-    
-    let renderTask: RenderTask | null = null;
-    let isMounted = true;
-    
-    const renderPage = async () => {
-      try {
-        console.log('Rendering page', currentPage);
-        
-        const page = await pdf.getPage(currentPage);
-        const desiredWidth = 800;
-        const originalViewport = page.getViewport({ scale: 1 });
-        const scale = desiredWidth / originalViewport.width;
-        
-        const viewport = page.getViewport({ scale });
-        const canvas = canvasRef.current;
-        if (!canvas || !isMounted) return;
-        const context = canvas.getContext("2d");
-        if (!context) return;
-        
-        // Set canvas dimensions
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-        setCanvasWidth(viewport.width);
-        setCanvasHeight(viewport.height);
-
-        // Clear canvas
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Cancel previous render task if exists
-        if (renderTask) {
-          try {
-            renderTask.cancel();
-          } catch (e) {
-            // Ignore cancellation errors
-          }
-        }
-        
-        // Create new render task
-        renderTask = page.render({
-          canvasContext: context,
-          viewport: viewport,
-          canvas: canvas
-        });
-        
-        await renderTask.promise;
-        
-        if (!isMounted) return;
-        
-        // Create image from canvas for later drawing
-        const img = new Image();
-        img.onload = () => {
-          if (isMounted) {
-            setPageImage(img);
-          }
-        };
-        img.src = canvas.toDataURL();
-        
-      } catch (error: any) {
-        // Handle render cancellation
-        if (error instanceof Error && 
-            (error.name === 'RenderingCancelledException' || 
-             error.message?.includes('cancel') ||
-             error.message?.includes('destroyed'))) {
-          console.log('Render cancelled or PDF destroyed');
-        } else {
-          console.error('Error rendering PDF:', error);
-        }
-      }
-    };
-    
-    renderPage();
-    
-    // Cleanup function
-    return () => {
-      isMounted = false;
-      if (renderTask) {
-        try {
-          renderTask.cancel();
-        } catch (e) {
-          // Ignore cancellation errors
-        }
-        renderTask = null;
-      }
-    };
-  }, [pdf, currentPage]);
-
-  // Canvas Update Effect - Draw signature and hover effects on top of PDF
-  useEffect(() => {
-    if (!canvasRef.current || !pageImage) return;
-    
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    
-    // Clear and redraw the PDF
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(pageImage, 0, 0);
-    
-    // Draw signature if present
-    const sigPos = signaturePlacements.get(currentPage);
-    if (sigPos && signatureImg) {
-      ctx.drawImage(signatureImg, sigPos.x, sigPos.y, sigPos.width, sigPos.height);
-      
-      // Draw border if hovering
-      if (isHoveringSignature) {
-        ctx.strokeStyle = "#708993";
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 5]);
-        ctx.strokeRect(sigPos.x, sigPos.y, sigPos.width, sigPos.height);
-        ctx.setLineDash([]);
-      }
-    }
-  }, [pageImage, currentPage, signaturePlacements, signatureImg, isHoveringSignature]);
-  
-  // Handle mouse leave
-  useEffect(() => {
-    const handleMouseLeave = () => {
-      setIsDraggingSignature(false);
-      setIsDrawing(false);
-      setIsHoveringSignature(false);
-      setStartPos(null);
-    };
-
-    const canvas = canvasRef.current;
-    if (canvas) {
-      canvas.addEventListener('mouseleave', handleMouseLeave);
-      canvas.addEventListener('touchcancel', handleMouseLeave);
-      return () => {
-        canvas.removeEventListener('mouseleave', handleMouseLeave);
-        canvas.removeEventListener('touchcancel', handleMouseLeave);
-      }
-    }
-  }, []);
-
-  // Get Coordinates Function
-  const getCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!canvasRef.current) return null;
-    
-    const canvas = canvasRef.current;
-    const rectBounds = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rectBounds.width;
-    const scaleY = canvas.height / rectBounds.height;
-    
-    let clientX, clientY;
-    
-    if ('touches' in e) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-    
-    // Standard canvas coordinates (top-left origin)
-    const x = (clientX - rectBounds.left) * scaleX;
-    const y = (clientY - rectBounds.top) * scaleY;
-    
-    return { x, y };
-  };
-
-  // Handle pointer down
-  const handlePointerDown = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!canvasRef.current) return;
-    
-    const coords = getCoordinates(e);
-    if (!coords) return;
-    
-    const { x, y } = coords;
-    const sigPos = signaturePlacements.get(currentPage) || null;
-
-    // Check if clicked/touched inside signature (start dragging)
-    if (sigPos && signatureImg &&
-      x >= sigPos.x &&
-      x <= sigPos.x + sigPos.width &&
-      y >= sigPos.y &&
-      y <= sigPos.y + sigPos.height
-    ) {
-      setIsDraggingSignature(true);
-      setStartPos({
-        x,
-        y,
-        xOffset: x - sigPos.x,
-        yOffset: y - sigPos.y,
-      });
-      
-      // Prevent default for touch events to avoid scrolling
-      if ('touches' in e) {
-        e.preventDefault();
-      }
-      return;
-    }
-
-    // If there's already a signature on the page, don't start drawing
-    if (sigPos && signatureImg) return;
-
-    // Otherwise, start drawing selection
-    setStartPos({ x, y });
-    setIsDrawing(true);
-    
-    // Prevent default for touch events
-    if ('touches' in e) {
-      e.preventDefault();
-    }
-  };
-
-
-  // Handle pointer move
-  const handlePointerMove = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!canvasRef.current) return;
-    
-    const coords = getCoordinates(e);
-    if (!coords) return;
-    
-    const { x, y } = coords;
-
-    // Check if hovering over signature
-    const sigPos = signaturePlacements.get(currentPage) || null;
-    if (sigPos && signatureImg &&
-      x >= sigPos.x &&
-      x <= sigPos.x + sigPos.width &&
-      y >= sigPos.y &&
-      y <= sigPos.y + sigPos.height
-    ) {
-      setIsHoveringSignature(true);
-      if (canvasRef.current) {
-        canvasRef.current.style.cursor = isDraggingSignature ? 'grabbing' : 'grab';
-      }
-    } else {
-      setIsHoveringSignature(false);
-      if (canvasRef.current) {
-        canvasRef.current.style.cursor = isDrawing ? 'crosshair' : 'default';
-      }
-    }
-
-    drawCanvas({ x, y });
-    
-    // Prevent default for touch events during drag
-    if (('touches' in e) && (isDraggingSignature || isDrawing)) {
-      e.preventDefault();
-    }
-  };
-
-
-  // Draw Canvas Function
-  const drawCanvas = ({ x, y }: { x: number; y: number }) => {
-    if (!canvasRef.current || !pageImage) return;
-    
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d")!;
-    
-    // Clear and redraw the PDF
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw the PDF image directly (no flip needed)
-    ctx.drawImage(pageImage, 0, 0);
-
-    const sigPos = currentSignaturePosition;
-
-    if (isDraggingSignature && sigPos && startPos && signatureImg) {
-      // Calculate new position using standard coordinates
-      const newX = Math.max(0, Math.min(x - (startPos.xOffset ?? 0), canvas.width - sigPos.width));
-      const newY = Math.max(0, Math.min(y - (startPos.yOffset ?? 0), canvas.height - sigPos.height));
-      
-      const newPos = { ...sigPos, x: newX, y: newY };
-      
-      // Draw signature in standard canvas coordinates (no flip needed)
-      ctx.drawImage(signatureImg, newPos.x, newPos.y, newPos.width, newPos.height);
-      
-      // Draw selection border
-      ctx.strokeStyle = "#708993";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]);
-      ctx.strokeRect(newPos.x, newPos.y, newPos.width, newPos.height);
-      ctx.setLineDash([]);
-      
-      updateSignaturePlacement(currentPage, newPos);
-      return;
-    }
-
-    // Draw existing signature (not dragging)
-    if (sigPos && signatureImg) {
-      ctx.drawImage(signatureImg, sigPos.x, sigPos.y, sigPos.width, sigPos.height);
-
-      // Hover effect
-      if (isHoveringSignature) {
-        ctx.strokeStyle = "#708993";
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 5]);
-        ctx.strokeRect(sigPos.x, sigPos.y, sigPos.width, sigPos.height);
-        ctx.setLineDash([]);
-      }
-    }
-
-    // Draw selection rectangle (for creating new signatures)
-    if (isDrawing && startPos) {
-      const rawW = x - startPos.x;
-      const rawH = y - startPos.y;
-      const selX = rawW >= 0 ? startPos.x : startPos.x + rawW;
-      const selY = rawH >= 0 ? startPos.y : startPos.y + rawH;
-      const selW = Math.abs(rawW);
-      const selH = Math.abs(rawH);
-
-      ctx.strokeStyle = "#708993";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]);
-      ctx.strokeRect(selX, selY, selW, selH);
-      ctx.setLineDash([]);
-      rectRef.current = { x: selX, y: selY, width: selW, height: selH };
-    }
-  };
-
-
-  const handlePointerUp = () => {
-    if (isDraggingSignature) {
-      setIsDraggingSignature(false);
-      setStartPos(null);
-      return;
-    }
-
-    if (isDrawing) {
-      setIsDrawing(false);
-      setStartPos(null);
-    }
-  };
-
-  useEffect(() => {
-    if (user?.id && user?.roles) {
-      loadSignatures(user.id, user?.roles, null);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const loadSignatures = async (userId:string | null, userRoles: Role[], type:any) => {
-    try {
-      const params = {
-        user_id: userId,
-        user_roles: userRoles,
-        type: null,
-        only_defaults: true
-      }
-
-      if (type) {
-        params.type = type;
-      }
-
-      const response = await api.get("v1/signatures", { params })
-      setSignatures(response.data);
-    } catch (error) {
-      console.error("Error loading signatures:", error); 
-    }
-  };
-
-  const handlePreviousPage = () => {
-    setCurrentPage((prev) => Math.max(1, prev - 1));
-  };
-
-  const handleNextPage = () => {
-    if (pdf) {
-      setCurrentPage((prev) => Math.min(pdf.numPages, prev + 1));
-    }
-  };
-
-  const handleSubmit = async () => {
-    // Show password dialog first
-    setPasswordDialogOpen(true);
-  };
-
-  const handlePasswordConfirm = async () => {
-    if (!certificatePassword) {
-      toast.error("Please enter your certificate password");
-      return;
-    }
-
-    if (signaturePlacements.size === 0 || !signatureFile || !pdfFile) {
-      toast.error("Please select a certificate and place a signature");
-      return;
-    }
-
-    setVerifying(true);
-    setError(null);
-
-    const formData = new FormData();
-    formData.append("documentId", selectedDocument?.id || "")
-    formData.append("documentFileName", selectedDocument?.fileName || "");
-    formData.append("pdf_document", pdfFile!)
-    formData.append("password", certificatePassword); // Use the user-provided password
-    formData.append("canvasWidth", canvasWidth.toString());
-    formData.append("canvasHeight", canvasHeight.toString());
-    formData.append("location", "Unknown Location");
-
-    if (selectedDocument?.fileName) formData.append("original_filename", selectedDocument.fileName)
-    if (user?.id) formData.append("user_id", user.id)
-    if (selectedSignature?.id) formData.append("signature_image_id", selectedSignature.id)
-    if (certHash?.certificateHash) formData.append("certificate_hash", certHash.certificateHash)
-    if (selectedSignature?.signatureType && selectedSignature.signatureType.toString() === 'INITIAL') {
-      formData.append("isInitial", "true")
-    } else {
-      formData.append("isInitial", "false")
-    }
-    
-    const placementsArray = Array.from(signaturePlacements.entries()).map(
-      ([page, rect]) => ({
-        pageNumber: page,
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-      })
-    );
-
-    formData.append("signaturePlacements", JSON.stringify(placementsArray));
-
-    try {
-      const response = await api.post("v1/sign-document", formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      const data = response.data;
-
-      if (data.signedFile) {
-        await downloadFile(data.signedFile);
-
-        setPasswordDialogOpen(false);
-        setCertificatePassword("");
-
-        toast.success(`Signature submitted successfully! Signed on ${signaturePlacements.size} page(s)`);
-        
-        // Reset all state after successful submission
-        resetAfterSuccess();
-      } else {
-        toast.error(data.error || "Verification failed");
-      }
-    } catch (err: any) {
-      if (err.response) {
-        if (err.response.status === 403) {
-          setError("Access denied — you do not have permission to sign this document.");
-        } else if (err.response.status === 401) {
-          setError("Invalid certificate password. Please try again.");
-        } else {
-          setError(err.response.data?.error || `HTTP error! status: ${err.response.status}`);
-        }
-      } else if (err.request) {
-        setError("No response from server. Please check your connection.");
-      } else {
-        setError("Error connecting to server: " + err.message);
-      }
-    } finally {
-      setVerifying(false);
-    }
-  };
-
-  const handleCopyToPages = () => {
-    if (!currentSignaturePosition || !pdf) return;
-    setCopyModeDialogOpen(true);
-  };
-
-  const handleCopyConfirm = () => {
-    if (!currentSignaturePosition || !pdf) return;
-
-    const pages = parsePagesInput(copyToPages, pdf.numPages);
-    
-    if (pages.length === 0) {
-      toast.error("No valid pages specified");
-      return;
-    }
-    
-    const newPlacements = new Map(signaturePlacements);
-    let copiedCount = 0;
-    
-    pages.forEach(pageNum => {
-      if (pageNum !== currentPage) {
-        newPlacements.set(pageNum, { ...currentSignaturePosition });
-        copiedCount++;
-      }
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
-    
-    if (copiedCount === 0) {
-      toast.error("No new pages to copy to (current page excluded)");
-      return;
-    }
-    
-    setSignaturePlacements(newPlacements);
-    setCopyModeDialogOpen(false);
-    setCopyToPages("");
-    setMultiPageMode(true);
-    toast.success(`Signature copied to ${copiedCount} page(s)`);
   };
 
   const parsePagesInput = (input: string, totalPages: number): number[] => {
     const pages = new Set<number>();
     const parts = input.split(',').map(s => s.trim());
-    
+
     for (const part of parts) {
       if (part.includes('-')) {
         const [start, end] = part.split('-').map(s => parseInt(s.trim()));
@@ -879,8 +253,577 @@ useEffect(() => {
         }
       }
     }
-    
+
     return Array.from(pages).sort((a, b) => a - b);
+  };
+
+  // ==================== Rotation Calculations ====================
+
+  const calculateRotatedPoint = (x: number, y: number, centerX: number, centerY: number, angle: number) => {
+    const rad = (angle * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    const translatedX = x - centerX;
+    const translatedY = y - centerY;
+
+    const rotatedX = translatedX * cos - translatedY * sin;
+    const rotatedY = translatedX * sin + translatedY * cos;
+
+    return {
+      x: rotatedX + centerX,
+      y: rotatedY + centerY
+    };
+  };
+
+  const calculateInverseRotatedPoint = (x: number, y: number, centerX: number, centerY: number, angle: number) => {
+    const rad = (angle * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    const translatedX = x - centerX;
+    const translatedY = y - centerY;
+
+    const rotatedX = translatedX * cos + translatedY * sin;
+    const rotatedY = -translatedX * sin + translatedY * cos;
+
+    return {
+      x: rotatedX + centerX,
+      y: rotatedY + centerY
+    };
+  };
+
+  const getRotatedCorners = (rect: Rect) => {
+    const centerX = rect.x + rect.width / 2;
+    const centerY = rect.y + rect.height / 2;
+    const rotation = rect.rotation || 0;
+
+    const corners = [
+      { x: rect.x, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y + rect.height },
+      { x: rect.x, y: rect.y + rect.height },
+    ];
+
+    return corners.map(corner =>
+      calculateRotatedPoint(corner.x, corner.y, centerX, centerY, rotation)
+    );
+  };
+
+  const getRotatedBoundingBox = (rect: Rect) => {
+    const corners = getRotatedCorners(rect);
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    corners.forEach(corner => {
+      minX = Math.min(minX, corner.x);
+      maxX = Math.max(maxX, corner.x);
+      minY = Math.min(minY, corner.y);
+      maxY = Math.max(maxY, corner.y);
+    });
+
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY
+    };
+  };
+
+  // ==================== Drawing Functions ====================
+
+  const drawRotatedSelectionBox = (ctx: CanvasRenderingContext2D, rect: Rect) => {
+    const rotation = rect.rotation || 0;
+    const centerX = rect.x + rect.width / 2;
+    const centerY = rect.y + rect.height / 2;
+
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate((rotation * Math.PI) / 180);
+    ctx.translate(-centerX, -centerY);
+
+    // Draw dashed border
+    ctx.strokeStyle = "#708993";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+    ctx.setLineDash([]);
+
+    // Draw resize handles
+    const handleSize = 6;
+    const handles = [
+      { x: rect.x - handleSize/2, y: rect.y - handleSize/2, dir: "nw" },
+      { x: rect.x + rect.width - handleSize/2, y: rect.y - handleSize/2, dir: "ne" },
+      { x: rect.x - handleSize/2, y: rect.y + rect.height - handleSize/2, dir: "sw" },
+      { x: rect.x + rect.width - handleSize/2, y: rect.y + rect.height - handleSize/2, dir: "se" },
+    ];
+
+    handles.forEach(handle => {
+      ctx.fillStyle = "#19183B";
+      ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
+    });
+
+    ctx.restore();
+
+    // Draw rotation handle
+    const rotationHandleDistance = 25;
+    const topCenterX = rect.x + rect.width / 2;
+    const topCenterY = rect.y;
+
+    const rotatedTopCenter = calculateRotatedPoint(topCenterX, topCenterY, centerX, centerY, rotation);
+    const rotationHandleX = rotatedTopCenter.x;
+    const rotationHandleY = rotatedTopCenter.y - rotationHandleDistance;
+
+    const handleRadius = 8;
+    ctx.fillStyle = "#19183B";
+    ctx.beginPath();
+    ctx.arc(rotationHandleX, rotationHandleY, handleRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.translate(rotationHandleX, rotationHandleY);
+    ctx.rotate((rotation * Math.PI) / 180);
+    ctx.font = "12px Arial";
+    ctx.fillStyle = "white";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("↻", 0, 0);
+    ctx.restore();
+  };
+
+  const getCursorPosition = (x: number, y: number, rect: Rect): string => {
+    const rotation = rect.rotation || 0;
+    const centerX = rect.x + rect.width / 2;
+    const centerY = rect.y + rect.height / 2;
+
+    // Check rotation handle
+    const rotationHandleDistance = 25;
+    const topCenterX = rect.x + rect.width / 2;
+    const topCenterY = rect.y;
+    const rotatedTopCenter = calculateRotatedPoint(topCenterX, topCenterY, centerX, centerY, rotation);
+    const rotationHandleX = rotatedTopCenter.x;
+    const rotationHandleY = rotatedTopCenter.y - rotationHandleDistance;
+
+    const distanceToRotationHandle = Math.sqrt(
+      Math.pow(x - rotationHandleX, 2) + Math.pow(y - rotationHandleY, 2)
+    );
+    if (distanceToRotationHandle <= 15) {
+      return "rotate";
+    }
+
+    // Check other positions using inverse rotation
+    const localMouse = calculateInverseRotatedPoint(x, y, centerX, centerY, rotation);
+
+    if (
+      localMouse.x >= rect.x &&
+      localMouse.x <= rect.x + rect.width &&
+      localMouse.y >= rect.y &&
+      localMouse.y <= rect.y + rect.height
+    ) {
+      const handleTolerance = 8;
+      const handles = [
+        { x: rect.x, y: rect.y, dir: "nw" },
+        { x: rect.x + rect.width, y: rect.y, dir: "ne" },
+        { x: rect.x, y: rect.y + rect.height, dir: "sw" },
+        { x: rect.x + rect.width, y: rect.y + rect.height, dir: "se" },
+      ];
+
+      for (const handle of handles) {
+        if (
+          Math.abs(localMouse.x - handle.x) <= handleTolerance &&
+          Math.abs(localMouse.y - handle.y) <= handleTolerance
+        ) {
+          return handle.dir;
+        }
+      }
+
+      return "move";
+    }
+
+    return "default";
+  };
+
+  const getCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!canvasRef.current) return null;
+
+    const canvas = canvasRef.current;
+    const rectBounds = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rectBounds.width;
+    const scaleY = canvas.height / rectBounds.height;
+
+    let clientX, clientY;
+
+    if ('touches' in e) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+
+    const x = (clientX - rectBounds.left) * scaleX;
+    const y = (clientY - rectBounds.top) * scaleY;
+
+    return { x, y };
+  };
+
+  const drawCanvas = ({ x, y }: { x: number; y: number }) => {
+    if (!canvasRef.current || !pageImage) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d")!;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(pageImage, 0, 0);
+
+    const sigPos = currentSignaturePosition;
+
+    // Handle rotation
+    if (isRotatingSignature && sigPos && startPos && signatureImg) {
+      const centerX = sigPos.x + sigPos.width / 2;
+      const centerY = sigPos.y + sigPos.height / 2;
+
+      const startAngle = Math.atan2(startPos.y - centerY, startPos.x - centerX);
+      const currentAngle = Math.atan2(y - centerY, x - centerX);
+      const angleDiff = currentAngle - startAngle;
+      const angleDiffDeg = angleDiff * (180 / Math.PI);
+      const newRotation = ((sigPos.rotation || 0) + angleDiffDeg) % 360;
+      const snappedRotation = Math.round(newRotation / 15) * 15;
+
+      const newPos = { ...sigPos, rotation: snappedRotation };
+
+      const newCenterX = newPos.x + newPos.width / 2;
+      const newCenterY = newPos.y + newPos.height / 2;
+
+      ctx.save();
+      ctx.translate(newCenterX, newCenterY);
+      ctx.rotate((snappedRotation * Math.PI) / 180);
+      ctx.translate(-newCenterX, -newCenterY);
+      ctx.drawImage(signatureImg, newPos.x, newPos.y, newPos.width, newPos.height);
+      ctx.restore();
+
+      drawRotatedSelectionBox(ctx, newPos);
+      updateSignaturePlacement(currentPage, newPos);
+      setStartPos({ x, y });
+      return;
+    }
+
+    // Handle resizing
+    if (isResizingSignature && sigPos && startPos && signatureImg && resizeDirection) {
+      const aspectRatio = sigPos.width / sigPos.height;
+      const rotation = sigPos.rotation || 0;
+      const centerX = sigPos.x + sigPos.width / 2;
+      const centerY = sigPos.y + sigPos.height / 2;
+
+      const localMouse = calculateInverseRotatedPoint(x, y, centerX, centerY, rotation);
+      const localStart = calculateInverseRotatedPoint(startPos.x, startPos.y, centerX, centerY, rotation);
+
+      let newWidth = sigPos.width;
+      let newHeight = sigPos.height;
+      let newX = sigPos.x;
+      let newY = sigPos.y;
+
+      const deltaX = localMouse.x - localStart.x;
+      const deltaY = localMouse.y - localStart.y;
+
+      switch (resizeDirection) {
+        case 'se':
+          newWidth = Math.max(20, sigPos.width + deltaX);
+          newHeight = newWidth / aspectRatio;
+          break;
+        case 'sw':
+          newWidth = Math.max(20, sigPos.width - deltaX);
+          newHeight = newWidth / aspectRatio;
+          newX = sigPos.x + (sigPos.width - newWidth);
+          break;
+        case 'ne':
+          newHeight = Math.max(20, sigPos.height - deltaY);
+          newWidth = newHeight * aspectRatio;
+          newY = sigPos.y + (sigPos.height - newHeight);
+          break;
+        case 'nw':
+          newWidth = Math.max(20, sigPos.width - deltaX);
+          newHeight = newWidth / aspectRatio;
+          newX = sigPos.x + (sigPos.width - newWidth);
+          newY = sigPos.y + (sigPos.height - newHeight);
+          break;
+      }
+
+      const boundingBox = getRotatedBoundingBox({
+        x: newX,
+        y: newY,
+        width: newWidth,
+        height: newHeight,
+        rotation: rotation
+      });
+
+      if (boundingBox.x < 0 || boundingBox.x + boundingBox.width > canvas.width ||
+          boundingBox.y < 0 || boundingBox.y + boundingBox.height > canvas.height) {
+        return;
+      }
+
+      const newPos = { ...sigPos, x: newX, y: newY, width: newWidth, height: newHeight, rotation: rotation };
+
+      const finalCenterX = newPos.x + newPos.width / 2;
+      const finalCenterY = newPos.y + newPos.height / 2;
+
+      ctx.save();
+      ctx.translate(finalCenterX, finalCenterY);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.translate(-finalCenterX, -finalCenterY);
+      ctx.drawImage(signatureImg, newPos.x, newPos.y, newPos.width, newPos.height);
+      ctx.restore();
+
+      drawRotatedSelectionBox(ctx, newPos);
+      updateSignaturePlacement(currentPage, newPos);
+      setStartPos({ x, y });
+      return;
+    }
+
+    // Handle dragging
+    if (isDraggingSignature && sigPos && startPos && signatureImg) {
+      const rotation = sigPos.rotation || 0;
+
+      const newCenterX = x - (startPos.xOffset ?? 0);
+      const newCenterY = y - (startPos.yOffset ?? 0);
+
+      const newX = newCenterX - sigPos.width / 2;
+      const newY = newCenterY - sigPos.height / 2;
+
+      const clampedX = Math.max(0, Math.min(newX, canvas.width - sigPos.width));
+      const clampedY = Math.max(0, Math.min(newY, canvas.height - sigPos.height));
+
+      const clampedCenterX = clampedX + sigPos.width / 2;
+      const clampedCenterY = clampedY + sigPos.height / 2;
+
+      const newPos = { ...sigPos, x: clampedX, y: clampedY, rotation: rotation };
+
+      const boundingBox = getRotatedBoundingBox(newPos);
+      if (boundingBox.x < 0 || boundingBox.x + boundingBox.width > canvas.width ||
+          boundingBox.y < 0 || boundingBox.y + boundingBox.height > canvas.height) {
+        return;
+      }
+
+      ctx.save();
+      ctx.translate(clampedCenterX, clampedCenterY);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.translate(-clampedCenterX, -clampedCenterY);
+      ctx.drawImage(signatureImg, newPos.x, newPos.y, newPos.width, newPos.height);
+      ctx.restore();
+
+      drawRotatedSelectionBox(ctx, newPos);
+      updateSignaturePlacement(currentPage, newPos);
+      return;
+    }
+
+    // Draw existing signature
+    if (sigPos && signatureImg) {
+      const rotation = sigPos.rotation || 0;
+      const centerX = sigPos.x + sigPos.width / 2;
+      const centerY = sigPos.y + sigPos.height / 2;
+
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.translate(-centerX, -centerY);
+      ctx.drawImage(signatureImg, sigPos.x, sigPos.y, sigPos.width, sigPos.height);
+      ctx.restore();
+
+      if (isHoveringSignature || isDraggingSignature || isResizingSignature || isRotatingSignature) {
+        drawRotatedSelectionBox(ctx, sigPos);
+      }
+    }
+
+    // Draw selection rectangle
+    if (isDrawing && startPos) {
+      const rawW = x - startPos.x;
+      const rawH = y - startPos.y;
+      const selX = rawW >= 0 ? startPos.x : startPos.x + rawW;
+      const selY = rawH >= 0 ? startPos.y : startPos.y + rawH;
+      const selW = Math.abs(rawW);
+      const selH = Math.abs(rawH);
+
+      ctx.strokeStyle = "#708993";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.strokeRect(selX, selY, selW, selH);
+      ctx.setLineDash([]);
+      rectRef.current = { x: selX, y: selY, width: selW, height: selH };
+    }
+  };
+
+  // ==================== Event Handlers ====================
+
+  const handlePointerDown = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!canvasRef.current) return;
+
+    const coords = getCoordinates(e);
+    if (!coords) return;
+
+    const { x, y } = coords;
+    const sigPos = signaturePlacements.get(currentPage) || null;
+
+    if (sigPos && signatureImg) {
+      const cursorPos = getCursorPosition(x, y, sigPos);
+
+      if (cursorPos === "rotate") {
+        setIsRotatingSignature(true);
+        setIsHoveringSignature(true);
+        setStartPos({ x, y });
+        if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
+        if ('touches' in e) e.preventDefault();
+        return;
+      }
+
+      if (cursorPos === "move") {
+        setIsDraggingSignature(true);
+
+        //const rotation = sigPos.rotation || 0;
+        const centerX = sigPos.x + sigPos.width / 2;
+        const centerY = sigPos.y + sigPos.height / 2;
+
+        const offsetX = x - centerX;
+        const offsetY = y - centerY;
+
+        setStartPos({ x: centerX, y: centerY, xOffset: offsetX, yOffset: offsetY });
+        if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
+        if ('touches' in e) e.preventDefault();
+        return;
+      }
+
+      if (["nw", "ne", "sw", "se"].includes(cursorPos)) {
+        setIsResizingSignature(true);
+        setResizeDirection(cursorPos);
+        setStartPos({ x, y });
+
+        if (canvasRef.current) {
+          const cursorMap: Record<string, string> = {
+            "nw": "nw-resize",
+            "ne": "ne-resize",
+            "sw": "sw-resize",
+            "se": "se-resize",
+          };
+          canvasRef.current.style.cursor = cursorMap[cursorPos] || 'default';
+        }
+
+        if ('touches' in e) e.preventDefault();
+        return;
+      }
+    }
+
+    if (sigPos && signatureImg) return;
+
+    setStartPos({ x, y });
+    setIsDrawing(true);
+    if (canvasRef.current) canvasRef.current.style.cursor = 'crosshair';
+    if ('touches' in e) e.preventDefault();
+  };
+
+  const handlePointerMove = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!canvasRef.current) return;
+
+    const coords = getCoordinates(e);
+    if (!coords) return;
+
+    const { x, y } = coords;
+    const sigPos = signaturePlacements.get(currentPage) || null;
+
+    if (sigPos && signatureImg) {
+      const cursorPos = getCursorPosition(x, y, sigPos);
+
+      if (!isDraggingSignature && !isResizingSignature && !isRotatingSignature && !isDrawing) {
+        const cursorMap: Record<string, string> = {
+          "rotate": "grab",
+          "move": "grab",
+          "nw": "nw-resize",
+          "ne": "ne-resize",
+          "sw": "sw-resize",
+          "se": "se-resize",
+          "default": "default"
+        };
+
+        if (canvasRef.current) {
+          canvasRef.current.style.cursor = cursorMap[cursorPos] || 'default';
+        }
+
+        setIsHoveringSignature(cursorPos !== "default");
+      }
+    } else {
+      setIsHoveringSignature(false);
+      if (canvasRef.current && !isDrawing) {
+        canvasRef.current.style.cursor = 'default';
+      }
+    }
+
+    drawCanvas({ x, y });
+
+    if (('touches' in e) && (isDraggingSignature || isResizingSignature || isRotatingSignature || isDrawing)) {
+      e.preventDefault();
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (isRotatingSignature) {
+      setIsRotatingSignature(false);
+      setStartPos(null);
+      return;
+    }
+
+    if (isResizingSignature) {
+      setIsResizingSignature(false);
+      setResizeDirection(null);
+      setStartPos(null);
+      return;
+    }
+
+    if (isDraggingSignature) {
+      setIsDraggingSignature(false);
+      setStartPos(null);
+      return;
+    }
+
+    if (isDrawing) {
+      setIsDrawing(false);
+      setStartPos(null);
+    }
+  };
+
+  const handleRotateSignature = () => {
+    const sigPos = signaturePlacements.get(currentPage);
+    if (sigPos && signatureImg) {
+      const currentRotation = sigPos.rotation || 0;
+      const newRotation = (currentRotation + 90) % 360;
+
+      const newPos = { ...sigPos, rotation: newRotation };
+      updateSignaturePlacement(currentPage, newPos);
+      toast.success(`Signature rotated to ${newRotation}°`);
+    }
+  };
+
+  const handleResizeToOriginal = () => {
+    const sigPos = signaturePlacements.get(currentPage);
+    if (sigPos && signatureImg) {
+      const originalWidth = signatureImg.naturalWidth;
+      const originalHeight = signatureImg.naturalHeight;
+
+      const newPos = { ...sigPos, width: originalWidth, height: originalHeight };
+      updateSignaturePlacement(currentPage, newPos);
+      toast.success("Signature resized to original dimensions");
+    }
+  };
+
+  const handlePreviousPage = () => {
+    setCurrentPage((prev) => Math.max(1, prev - 1));
+  };
+
+  const handleNextPage = () => {
+    if (pdf) {
+      setCurrentPage((prev) => Math.min(pdf.numPages, prev + 1));
+    }
   };
 
   const handleRemoveSignature = () => {
@@ -891,19 +834,109 @@ useEffect(() => {
     }
   };
 
-  const handleChooseFile = () => {
-    loadDocuments();
-    setChooseFileDialogOpen((prev) => !prev);
-    setIsFabOpen((prev) => !prev);
+  const handleCopyToPages = () => {
+    if (!currentSignaturePosition || !pdf) return;
+    setCopyModeDialogOpen(true);
   };
 
-  const handleChooseSignatureType = () => {
-    if (!selectedDocument && !preloadedDocument) {
-      toast.error("Please load PDF Document first.");
+  const handleCopyConfirm = () => {
+    if (!currentSignaturePosition || !pdf) return;
+
+    const pages = parsePagesInput(copyToPages, pdf.numPages);
+
+    if (pages.length === 0) {
+      toast.error("No valid pages specified");
       return;
     }
-    setIsFabOpen(false);
-    setChooseSignatureTypeDialogOpen(true);
+
+    const newPlacements = new Map(signaturePlacements);
+    let copiedCount = 0;
+
+    pages.forEach(pageNum => {
+      if (pageNum !== currentPage) {
+        newPlacements.set(pageNum, { ...currentSignaturePosition });
+        copiedCount++;
+      }
+    });
+
+    if (copiedCount === 0) {
+      toast.error("No new pages to copy to (current page excluded)");
+      return;
+    }
+
+    setSignaturePlacements(newPlacements);
+    setCopyModeDialogOpen(false);
+    setCopyToPages("");
+    setMultiPageMode(true);
+    toast.success(`Signature copied to ${copiedCount} page(s)`);
+  };
+
+  // ==================== API Functions ====================
+
+  const loadDocumentForSigning = async (doc: PDFDocument) => {
+    setIsLoadingPdf(true);
+    try {
+      setSelectedDocument(doc);
+
+      const response = await api.get("v1/documents/view/" + doc.filePath, {
+        responseType: 'blob'
+      });
+
+      const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
+      setPdfFile(pdfBlob);
+
+      setSignaturePlacements(new Map());
+      setSignatureImg(null);
+      setCurrentPage(1);
+    } catch (error) {
+      console.error('Error loading PDF:', error);
+    } finally {
+      setIsLoadingPdf(false);
+    }
+  };
+
+  const loadDocumentById = async (documentId: string) => {
+    try {
+      const response = await api.get(`v1/documents/${documentId}`);
+      await loadDocumentForSigning(response.data);
+    } catch (error) {
+      toast.error('Failed to load document');
+      throw error;
+    }
+  };
+
+  const loadDefaultCert = async () => {
+    try {
+      const response = await api.get("v1/certificates/default", { params: { user_id: user?.id } });
+      const data = response.data;
+      if (isExpired(data.expiresAt)) {
+        toast.error("Expired default certificate");
+        return;
+      }
+      setCertHash(data);
+    } catch {
+      toast.error("No default certificate found");
+    }
+  };
+
+  const loadSignatures = async (userId: string | null, userRoles: Role[], type: any) => {
+    try {
+      const params = {
+        user_id: userId,
+        user_roles: userRoles,
+        type: null,
+        only_defaults: true
+      };
+
+      if (type) {
+        params.type = type;
+      }
+
+      const response = await api.get("v1/signatures", { params });
+      setSignatures(response.data);
+    } catch (error) {
+      console.error("Error loading signatures:", error);
+    }
   };
 
   const loadDocuments = async (page = 1, search = "") => {
@@ -932,6 +965,131 @@ useEffect(() => {
     }
   };
 
+  const resetAfterSuccess = () => {
+    setPdfFile(null);
+    setSelectedDocument(null);
+    setSignaturePlacements(new Map());
+    setSignatureImg(null);
+    setSignatureFile(null);
+    setSelectedSignature(null);
+    setSelectedSignatureType('');
+    rectRef.current = null;
+    setCurrentPage(1);
+    setCertificatePassword("");
+    setError(null);
+
+    if (onClose) {
+      onClose();
+    } else {
+      navigate(-1);
+    }
+  };
+
+  const handleSubmit = async () => {
+    setPasswordDialogOpen(true);
+  };
+
+  const handlePasswordConfirm = async () => {
+    if (!certificatePassword) {
+      toast.error("Please enter your certificate password");
+      return;
+    }
+
+    if (signaturePlacements.size === 0 || !signatureFile || !pdfFile) {
+      toast.error("Please select a certificate and place a signature");
+      return;
+    }
+
+    setVerifying(true);
+    setError(null);
+
+    const formData = new FormData();
+    formData.append("documentId", selectedDocument?.id || "");
+    formData.append("documentFileName", selectedDocument?.fileName || "");
+    formData.append("pdf_document", pdfFile!);
+    formData.append("password", certificatePassword);
+    formData.append("canvasWidth", canvasWidth.toString());
+    formData.append("canvasHeight", canvasHeight.toString());
+    formData.append("location", "Unknown Location");
+
+    if (selectedDocument?.fileName) formData.append("original_filename", selectedDocument.fileName);
+    if (user?.id) formData.append("user_id", user.id);
+    if (selectedSignature?.id) formData.append("signature_image_id", selectedSignature.id);
+    if (certHash?.certificateHash) formData.append("certificate_hash", certHash.certificateHash);
+    if (selectedSignature?.signatureType && selectedSignature.signatureType.toString() === 'INITIAL') {
+      formData.append("isInitial", "true");
+    } else {
+      formData.append("isInitial", "false");
+    }
+
+    const placementsArray = Array.from(signaturePlacements.entries()).map(
+      ([page, rect]) => ({
+        pageNumber: page,
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        rotation: rect.rotation || 0,
+      })
+    );
+
+    formData.append("signaturePlacements", JSON.stringify(placementsArray));
+
+    try {
+      const response = await api.post("v1/sign-document", formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      const data = response.data;
+
+      if (data.signedFile) {
+        await downloadFile(data.signedFile);
+
+        setPasswordDialogOpen(false);
+        setCertificatePassword("");
+
+        toast.success(`Signature submitted successfully! Signed on ${signaturePlacements.size} page(s)`);
+
+        resetAfterSuccess();
+      } else {
+        toast.error(data.error || "Verification failed");
+      }
+    } catch (err: any) {
+      if (err.response) {
+        if (err.response.status === 403) {
+          setError("Access denied — you do not have permission to sign this document.");
+        } else if (err.response.status === 401) {
+          setError("Invalid certificate password. Please try again.");
+        } else {
+          setError(err.response.data?.error || `HTTP error! status: ${err.response.status}`);
+        }
+      } else if (err.request) {
+        setError("No response from server. Please check your connection.");
+      } else {
+        setError("Error connecting to server: " + err.message);
+      }
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleChooseFile = () => {
+    loadDocuments();
+    setChooseFileDialogOpen((prev) => !prev);
+    setIsFabOpen((prev) => !prev);
+  };
+
+  const handleChooseSignatureType = () => {
+    if (!selectedDocument && !preloadedDocument) {
+      toast.error("Please load PDF Document first.");
+      return;
+    }
+    setIsFabOpen(false);
+    setChooseSignatureTypeDialogOpen(true);
+  };
+
   const handleOpenDocument = async () => {
     if (!selectedDocument) return;
 
@@ -940,18 +1098,16 @@ useEffect(() => {
       const response = await api.get("v1/documents/view/" + selectedDocument.filePath, {
         responseType: 'blob'
       });
-      
+
       const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
-      
+
       setPdfFile(pdfBlob);
       setChooseFileDialogOpen(false);
       setSearchTerm("");
-      
+
       setSignaturePlacements(new Map());
       setSignatureImg(null);
       setCurrentPage(1);
-      
-      //toast.success(`Loaded document: ${selectedDocument.fileName}`);
     } catch (error) {
       console.error('Error loading PDF:', error);
       toast.error('Failed to load PDF document');
@@ -969,97 +1125,272 @@ useEffect(() => {
     setSelectedDocument(document);
   };
 
-  const formatFileSize = (bytes: string) => {
-    const size = parseInt(bytes);
-    if (size === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(size) / Math.log(k));
-    return parseFloat((size / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  const handleSignatureSelection = async (signature: Signature) => {
+    try {
+      const response = await api.get(`v1/signatures/${signature.id}/file`, {
+        responseType: 'blob'
+      });
+
+      const signatureBlob = new Blob([response.data], { type: 'image/png' });
+
+      setSignatureFile(signatureBlob as any);
+
+      const img = new Image();
+      const url = URL.createObjectURL(signatureBlob);
+      img.src = url;
+
+      img.onload = () => {
+        setSignatureImg(img);
+
+        const defaultRect: Rect = {
+          x: 100,
+          y: 100,
+          width: img.width,
+          height: img.height,
+          rotation: 0
+        };
+
+        rectRef.current = defaultRect;
+        addSignaturePlacement(currentPage, { ...defaultRect, rotation: defaultRect.rotation ?? 0 });
+
+        if (canvasRef.current && pageImage) {
+          const ctx = canvasRef.current.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+            ctx.drawImage(pageImage, 0, 0);
+            ctx.drawImage(img, defaultRect.x, defaultRect.y, defaultRect.width, defaultRect.height);
+            drawRotatedSelectionBox(ctx, defaultRect);
+          }
+        }
+      };
+
+      img.onerror = () => {
+        console.error('Failed to load signature image');
+        toast.error('Failed to load signature image');
+      };
+
+      setSelectedSignature(signature);
+      setChooseSignatureTypeDialogOpen(false);
+      toast.success(`${signature.signatureType} signature selected`);
+
+    } catch (error) {
+      console.error('Error loading signature:', error);
+      toast.error('Failed to load signature');
+    }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+  // ==================== Effects ====================
+
+  useEffect(() => {
+    const initializeDocument = async () => {
+      if (hasInitializedRef.current) return;
+
+      setIsInitializing(true);
+      hasInitializedRef.current = true;
+
+      try {
+        console.log('Initializing document with:', {
+          preloadedDocument: !!preloadedDocument,
+          documentFromState: !!documentFromState,
+          id
+        });
+
+        if (preloadedDocument) {
+          console.log('Using preloaded document');
+          await loadDocumentForSigning(preloadedDocument);
+          setSelectedDocument(preloadedDocument);
+        } else if (documentFromState) {
+          console.log('Using document from route state');
+          await loadDocumentForSigning(documentFromState);
+        } else if (id) {
+          console.log('Fetching document by ID:', id);
+          await loadDocumentById(id);
+        }
+      } catch (error) {
+        console.error('Error initializing document:', error);
+        hasInitializedRef.current = false;
+      } finally {
+        setIsInitializing(false);
+      }
+    };
+
+    initializeDocument();
+
+    return () => {
+      hasInitializedRef.current = false;
+    };
+  }, [id, documentFromState, preloadedDocument]);
+
+  useEffect(() => {
+    loadDefaultCert();
+  }, []);
+
+  useEffect(() => {
+    if (user?.id && user?.roles) {
+      loadSignatures(user.id, user?.roles, null);
+    }
+  }, []);
 
   useEffect(() => {
     if (chooseFileDialogOpen) {
       loadDocuments();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chooseFileDialogOpen]);
 
-const handleSignatureSelection = async (signature: Signature) => {
-  try {
-    const response = await api.get(`v1/signatures/${signature.id}/file`, {
-      responseType: 'blob'
-    });
-    
-    const signatureBlob = new Blob([response.data], { type: 'image/png' });
-    
-    // Set the blob as the signature file (useSignatureManager should accept Blob)
-    setSignatureFile(signatureBlob as any);
-    
-    const img = new Image();
-    const url = URL.createObjectURL(signatureBlob);
-    img.src = url;
-    
-    img.onload = () => {
-      setSignatureImg(img);
-      
-      // Create default position using standard coordinates (no flip needed)
-      const defaultRect: Rect = {
-        x: 100,
-        y: 100,
-        width: img.width,
-        height: img.height
-      };
-      
-      rectRef.current = defaultRect;
-      addSignaturePlacement(currentPage, defaultRect);
-      
-      // Redraw canvas with signature
-      if (canvasRef.current && pageImage) {
-        const ctx = canvasRef.current.getContext("2d");
+  useEffect(() => {
+    return () => {
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext('2d');
         if (ctx) {
           ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-          
-          // Draw PDF (no flip needed)
-          ctx.drawImage(pageImage, 0, 0);
-          
-          // Draw signature (no flip needed)
-          ctx.drawImage(img, defaultRect.x, defaultRect.y, defaultRect.width, defaultRect.height);
-          
-          // Draw border
-          ctx.strokeStyle = "#708993";
-          ctx.lineWidth = 2;
-          ctx.setLineDash([5, 5]);
-          ctx.strokeRect(defaultRect.x, defaultRect.y, defaultRect.width, defaultRect.height);
-          ctx.setLineDash([]);
+        }
+      }
+
+      if (signatureImg) {
+        URL.revokeObjectURL(signatureImg.src);
+      }
+
+      if (pageImage) {
+        URL.revokeObjectURL(pageImage.src);
+      }
+    };
+  }, [signatureImg, pageImage]);
+
+  useEffect(() => {
+    if (!pdf || !canvasRef.current) {
+      return;
+    }
+
+    let renderTask: RenderTask | null = null;
+    let isMounted = true;
+
+    const renderPage = async () => {
+      try {
+        console.log('Rendering page', currentPage);
+
+        const page = await pdf.getPage(currentPage);
+        const desiredWidth = 800;
+        const originalViewport = page.getViewport({ scale: 1 });
+        const scale = desiredWidth / originalViewport.width;
+
+        const viewport = page.getViewport({ scale });
+        const canvas = canvasRef.current;
+        if (!canvas || !isMounted) return;
+        const context = canvas.getContext("2d");
+        if (!context) return;
+
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        setCanvasWidth(viewport.width);
+        setCanvasHeight(viewport.height);
+
+        context.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (renderTask) {
+          try {
+            renderTask.cancel();
+          } catch (e) {
+            // Ignore cancellation errors
+          }
+        }
+
+        renderTask = page.render({
+          canvasContext: context,
+          viewport: viewport,
+          canvas: canvas
+        });
+
+        await renderTask.promise;
+
+        if (!isMounted) return;
+
+        const img = new Image();
+        img.onload = () => {
+          if (isMounted) {
+            setPageImage(img);
+          }
+        };
+        img.src = canvas.toDataURL();
+
+      } catch (error: any) {
+        if (error instanceof Error &&
+            (error.name === 'RenderingCancelledException' ||
+             error.message?.includes('cancel') ||
+             error.message?.includes('destroyed'))) {
+          console.log('Render cancelled or PDF destroyed');
+        } else {
+          console.error('Error rendering PDF:', error);
         }
       }
     };
 
-    img.onerror = () => {
-      console.error('Failed to load signature image');
-      toast.error('Failed to load signature image');
+    renderPage();
+
+    return () => {
+      isMounted = false;
+      if (renderTask) {
+        try {
+          renderTask.cancel();
+        } catch (e) {
+          // Ignore cancellation errors
+        }
+        renderTask = null;
+      }
+    };
+  }, [pdf, currentPage]);
+
+  useEffect(() => {
+    if (!canvasRef.current || !pageImage) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(pageImage, 0, 0);
+
+    const sigPos = signaturePlacements.get(currentPage);
+    if (sigPos && signatureImg) {
+      const rotation = sigPos.rotation || 0;
+      const centerX = sigPos.x + sigPos.width / 2;
+      const centerY = sigPos.y + sigPos.height / 2;
+
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.translate(-centerX, -centerY);
+      ctx.drawImage(signatureImg, sigPos.x, sigPos.y, sigPos.width, sigPos.height);
+      ctx.restore();
+
+      if (isHoveringSignature || isDraggingSignature || isResizingSignature || isRotatingSignature) {
+        drawRotatedSelectionBox(ctx, sigPos);
+      }
+    }
+  }, [pageImage, currentPage, signaturePlacements, signatureImg, isHoveringSignature, isDraggingSignature, isResizingSignature, isRotatingSignature]);
+
+  useEffect(() => {
+    const handleMouseLeave = () => {
+      setIsDraggingSignature(false);
+      setIsDrawing(false);
+      setIsHoveringSignature(false);
+      setIsResizingSignature(false);
+      setIsRotatingSignature(false);
+      setResizeDirection(null);
+      setStartPos(null);
     };
 
-    setSelectedSignature(signature);
-    setChooseSignatureTypeDialogOpen(false);
-    toast.success(`${signature.signatureType} signature selected`);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.addEventListener('mouseleave', handleMouseLeave);
+      canvas.addEventListener('touchcancel', handleMouseLeave);
+      return () => {
+        canvas.removeEventListener('mouseleave', handleMouseLeave);
+        canvas.removeEventListener('touchcancel', handleMouseLeave);
+      };
+    }
+  }, []);
 
-  } catch (error) {
-    console.error('Error loading signature:', error);
-    toast.error('Failed to load signature');
-  }
-};
+  // ==================== Render ====================
 
   return (
     <>
@@ -1105,7 +1436,7 @@ const handleSignatureSelection = async (signature: Signature) => {
               </div>
             </div>
 
-            {/* PDF Navigation and Controls - Only show when a document is loaded */}
+            {/* PDF Navigation and Controls */}
             {pdf && selectedDocument && (
               <div className="bg-white border-b border-[#A1C2BD] p-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -1148,6 +1479,24 @@ const handleSignatureSelection = async (signature: Signature) => {
                   {currentSignaturePosition && signatureImg && (
                     <>
                       <Button
+                        onClick={handleRotateSignature}
+                        variant="outline"
+                        className="border-[#A1C2BD] text-[#19183B] hover:bg-[#E7F2EF]"
+                        title="Rotate 90°"
+                      >
+                        <RotateCw className="w-4 h-4 mr-2" />
+                        Rotate
+                      </Button>
+                      <Button
+                        onClick={handleResizeToOriginal}
+                        variant="outline"
+                        className="border-[#A1C2BD] text-[#19183B] hover:bg-[#E7F2EF]"
+                        title="Reset to original size"
+                      >
+                        <Maximize2 className="w-4 h-4 mr-2" />
+                        Reset Size
+                      </Button>
+                      <Button
                         onClick={handleCopyToPages}
                         variant="outline"
                         className="border-[#A1C2BD] text-[#19183B] hover:bg-[#E7F2EF]"
@@ -1176,9 +1525,9 @@ const handleSignatureSelection = async (signature: Signature) => {
             )}
 
             {/* Canvas Area */}
-            <div 
+            <div
               className="overflow-y-auto overflow-x-auto bg-gray-400 p-6"
-              style={{ 
+              style={{
                 flex: '1 1 0',
                 minHeight: 0
               }}
@@ -1222,11 +1571,10 @@ const handleSignatureSelection = async (signature: Signature) => {
         </div>
       </div>
 
-      {/* Floating Action Button - only show if not preloaded*/}
+      {/* Floating Action Button */}
       <div className="fixed bottom-8 right-8 flex flex-col items-end gap-4">
         {isFabOpen && (
           <div className="flex flex-col gap-3">
-            {/* Only show Choose PDF button if no document is loaded */}
             {!selectedDocument && !preloadedDocument && (
               <button
                 onClick={handleChooseFile}
@@ -1250,22 +1598,22 @@ const handleSignatureSelection = async (signature: Signature) => {
             </button>
 
             {!preloadedDocument && (
-            <button
-              onClick={handleFullScreen}
-              className="flex items-center gap-3 bg-white text-[#19183B] pl-4 pr-5 py-3 rounded-full shadow-lg hover:scale-105 border-2 border-[#A1C2BD]"
-            >
-              <div className="p-2 bg-[#A1C2BD] rounded-full">
-                {isFullScreen ? (
-                  <Minimize className="w-5 h-5 text-[#19183B]" />
-                ) : (
-                  <Fullscreen className="w-5 h-5 text-[#19183B]" />
-                )}
-              </div>
-              <span className="font-semibold">
-                {isFullScreen ? "Minimize" : "Fullscreen"}
-              </span>
+              <button
+                onClick={handleFullScreen}
+                className="flex items-center gap-3 bg-white text-[#19183B] pl-4 pr-5 py-3 rounded-full shadow-lg hover:scale-105 border-2 border-[#A1C2BD]"
+              >
+                <div className="p-2 bg-[#A1C2BD] rounded-full">
+                  {isFullScreen ? (
+                    <Minimize className="w-5 h-5 text-[#19183B]" />
+                  ) : (
+                    <Fullscreen className="w-5 h-5 text-[#19183B]" />
+                  )}
+                </div>
+                <span className="font-semibold">
+                  {isFullScreen ? "Minimize" : "Fullscreen"}
+                </span>
               </button>
-              )}
+            )}
           </div>
         )}
 
@@ -1281,7 +1629,6 @@ const handleSignatureSelection = async (signature: Signature) => {
         </button>
       </div>
 
-      {/* Add a close button if onClose prop is provided */}
       {onClose && (
         <button
           onClick={onClose}
@@ -1385,7 +1732,6 @@ const handleSignatureSelection = async (signature: Signature) => {
               Select the file to be loaded in the signature canvas from your uploaded PDF document.
             </p>
 
-            {/* Search Bar */}
             <form onSubmit={handleSearch} className="mb-6">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#708993] w-5 h-5" />
@@ -1399,7 +1745,6 @@ const handleSignatureSelection = async (signature: Signature) => {
               </div>
             </form>
 
-            {/* Documents List */}
             <div className="flex-1 overflow-y-auto mb-6">
               <div className="space-y-3">
                 {documents.length === 0 ? (
@@ -1436,7 +1781,6 @@ const handleSignatureSelection = async (signature: Signature) => {
               </div>
             </div>
 
-            {/* Dialog Buttons */}
             <div className="flex gap-3">
               <button
                 onClick={() => {
@@ -1488,9 +1832,7 @@ const handleSignatureSelection = async (signature: Signature) => {
               Select the type of signature you want to use. (Default signature)
             </p>
 
-            {/* Radio buttons with image preview */}
             <div className="space-y-4 mb-6">
-              {/* Full Signature Option */}
               {signatures.find(sig => sig.signatureType === "FULL") && (
                 <label className="flex items-center gap-4 p-4 border-2 border-gray-200 rounded-xl hover:border-[#A1C2BD] cursor-pointer transition-colors">
                   <input
@@ -1507,15 +1849,11 @@ const handleSignatureSelection = async (signature: Signature) => {
                       <SignatureCardPreview
                         previewUrl={signatures.find(sig => sig.signatureType === "FULL")?.previewUrl || ""}
                       />
-                      <div className="fallback-full text-xl font-signature text-[#19183B] hidden">
-                        Full Signature
-                      </div>
                     </div>
                   </div>
                 </label>
               )}
 
-              {/* Initials Signature Option */}
               {signatures.find(sig => sig.signatureType === "INITIAL") && (
                 <label className="flex items-center gap-4 p-4 border-2 border-gray-200 rounded-xl hover:border-[#A1C2BD] cursor-pointer transition-colors">
                   <input
@@ -1532,16 +1870,12 @@ const handleSignatureSelection = async (signature: Signature) => {
                       <SignatureCardPreview
                         previewUrl={signatures.find(sig => sig.signatureType === "INITIAL")?.previewUrl || ""}
                       />
-                      <div className="fallback-initial text-xl font-bold text-[#19183B] hidden">
-                        Initials
-                      </div>
                     </div>
                   </div>
                 </label>
               )}
             </div>
 
-            {/* Dialog Buttons */}
             <div className="flex gap-3">
               <button
                 onClick={() => setChooseSignatureTypeDialogOpen(false)}
@@ -1556,7 +1890,7 @@ const handleSignatureSelection = async (signature: Signature) => {
                     const selectedSignature = signatures.find(
                       sig => sig.signatureType === selectedSignatureType
                     );
-                    
+
                     if (selectedSignature) {
                       handleSignatureSelection(selectedSignature);
                       setChooseSignatureTypeDialogOpen(false);
@@ -1586,6 +1920,7 @@ const handleSignatureSelection = async (signature: Signature) => {
               <div className="p-2 bg-[#A1C2BD] rounded-lg">
                 <Copy className="w-5 h-5 text-[#19183B]" />
               </div>
+              Copy Signature to Pages
             </Dialog.Title>
             <div className="space-y-5 pt-4">
               <p className="text-sm text-[#708993]">

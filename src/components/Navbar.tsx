@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileSignature, Menu, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 
 interface NavbarProps {
   currentPage?: string;
@@ -9,8 +9,6 @@ const Navbar: React.FC<NavbarProps> = ({ currentPage = '' }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
-    { name: 'Sign', href: `${import.meta.env.BASE_URL}public-sign` },
-    { name: 'Verifier', href: `${import.meta.env.BASE_URL}public-verifier` },
     { name: 'About Us', href: `${import.meta.env.BASE_URL}public-about-us` },
     { name: 'FAQ', href: `${import.meta.env.BASE_URL}faq` },
   ];
@@ -21,10 +19,13 @@ const Navbar: React.FC<NavbarProps> = ({ currentPage = '' }) => {
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <a href="/" className="flex items-center space-x-2">
-            <FileSignature className="w-8 h-8" style={{ color: '#A1C2BD' }} />
-            <span className="text-2xl font-bold" style={{ color: '#E7F2EF' }}>
-              Pluma
-            </span>
+            <img src={`${import.meta.env.BASE_URL}new-logo.svg`} alt="new-logo.svg" width="40px"/>
+            <div className='flex flex-col'>
+              <span className="text-2xl font-bold" style={{ color: '#E7F2EF' }}>
+                {import.meta.env.VITE_APP_NAME || 'AppName'}
+              </span>
+              <span className='text-white text-xs'>National Commission on Indigenous Peoples</span>
+            </div>
           </a>
 
           {/* Desktop Menu */}

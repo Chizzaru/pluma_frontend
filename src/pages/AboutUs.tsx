@@ -1,5 +1,5 @@
 
-import { Building2, Users, Target, Shield, Code, Award } from 'lucide-react';
+import { Building2, Users, Target, Code, Award, Telescope } from 'lucide-react';
 import Navbar from '../components/Navbar';
 
 const AboutUs = () => {
@@ -80,7 +80,7 @@ const AboutUs = () => {
               Our Mission
             </h3>
             <p className="leading-relaxed" style={{ color: '#708993' }}>
-              To provide secure, efficient, and accessible digital signature solutions that support the NCIP's mandate of protecting and promoting the rights of Indigenous Peoples through innovative technology and digital transformation.
+              A trusted partner and lead advocate of ICCs/IPs in upholding their rights and well-being as enshrined in the Indigenous Peoples' Rights Act.
             </p>
           </div>
 
@@ -95,13 +95,16 @@ const AboutUs = () => {
               className="w-16 h-16 rounded-lg flex items-center justify-center mb-6"
               style={{ backgroundColor: '#A1C2BD33' }}
             >
-              <Shield className="w-8 h-8" style={{ color: '#708993' }} />
+              <Telescope className="w-8 h-8" style={{ color: '#708993' }} />
             </div>
             <h3 className="text-2xl font-bold mb-4" style={{ color: '#19183B' }}>
-              Our Commitment
+              Our Vision
             </h3>
             <p className="leading-relaxed" style={{ color: '#708993' }}>
-              We are committed to delivering government-grade security through PNPKI DICT compliance, ensuring that every digital signature is legally binding, tamper-proof, and trusted by all stakeholders.
+              By 2040, all Philippine Indigenous Cultural Communities/Indigenous Peoples will be fully empowered,
+              their rights genuinely fulfilled and realized, their cultural heritage observed, respected, and preserved,
+              and their ancestral domains and land sustainably protected and developed, ensuring active participation and contribution
+              to nation-building with their identity remaining intact as they adapt to evolving times, and thus securing a lasting legacy for future generations.
             </p>
           </div>
         </div>
@@ -194,10 +197,10 @@ const AboutUs = () => {
           }}
         >
           <h2 className="text-3xl font-bold mb-6 text-center" style={{ color: '#E7F2EF' }}>
-            About NCIP
+            Mandate
           </h2>
           <p className="text-lg leading-relaxed text-center max-w-4xl mx-auto" style={{ color: '#A1C2BD' }}>
-            The National Commission on Indigenous Peoples is the primary government agency responsible for the formulation and implementation of policies, plans, and programs to promote and protect the rights and well-being of Indigenous Cultural Communities/Indigenous Peoples (ICCs/IPs) and the recognition of their ancestral domains as well as their rights thereto.
+            The NCIP shall protect and promote the interest and well-being of the Indigenous Cultural Communities/Indigenous Peoples with due regard to their beliefs, customs, traditions, and institutions.
           </p>
         </div>
       </section>
@@ -210,7 +213,7 @@ const AboutUs = () => {
               ICTD - Bureau of OPPR
             </p>
             <p>National Commission on Indigenous Peoples</p>
-            <p className="mt-4">&copy; 2025 Pluma. All rights reserved. Powered by PNPKI DICT.</p>
+            <p className="mt-4">&copy; 2025 {import.meta.env.VITE_APP_NAME || 'AppName'}. All rights reserved.</p>
           </div>
         </div>
       </footer>

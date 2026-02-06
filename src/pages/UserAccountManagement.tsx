@@ -1,29 +1,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect } from 'react';
 import * as Form from '@radix-ui/react-form';
-import * as Select from '@radix-ui/react-select';
 import * as Dialog from '@radix-ui/react-dialog';
+import * as CheckboxPrimitive from '@radix-ui/react-checkbox';
 
-import { Checkbox } from "@/components/ui/checkbox"
 import toast from 'react-hot-toast';
 
-import { ChevronDown, Check, Pencil, Trash2, X, Search, ChevronLeft, ChevronRight, User, Mail, Key, Shield } from 'lucide-react';
+import { Check, Pencil, Trash2, X, Search, ChevronLeft, ChevronRight, User, Mail, Key, Shield, Users2, Eye, EyeOff} from 'lucide-react';
 
 import api from '@/api/axiosInstance';
 import type { Role } from '@/types/auth';
+import { useAuth } from '@/auth/useAuth';
 
 interface UserAccount {
   id: string;
   username: string;
   email: string;
   password: string;
-  role:[
-  {
-    id: number,
-    name: string;
-   }
+  role: [
+    {
+      id: number,
+      name: string;
+    }
   ];
-
   roles: Role[];
   createdAt: string;
   updatedAt: string;
@@ -65,6 +64,9 @@ const UserAccountManagement: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   
+  // Password visibility state
+  const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
+  
   // Pagination and search state
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -83,6 +85,8 @@ const UserAccountManagement: React.FC = () => {
 
   const [isUser, setIsUser] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  const { user } = useAuth();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -192,6 +196,7 @@ const UserAccountManagement: React.FC = () => {
       const params = new URLSearchParams({
         page: page.toString(),
         limit: limit.toString(),
+        userId: user?.id || '',
       });
       
       if (searchTerm) {
@@ -259,11 +264,12 @@ const UserAccountManagement: React.FC = () => {
   };
 
   // Calculate range of displayed items
-  const getDisplayRange = () => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  /*const getDisplayRange = () => {
     const startIndex = (pagination.currentPage - 1) * pagination.itemsPerPage + 1;
     const endIndex = Math.min(pagination.currentPage * pagination.itemsPerPage, pagination.totalItems);
     return { startIndex, endIndex };
-  };
+  };*/
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -441,30 +447,53 @@ const UserAccountManagement: React.FC = () => {
     }
   };
 
+  const togglePasswordVisibility = (userId: string) => {
+    const newVisible = new Set(visiblePasswords);
+    if (newVisible.has(userId)) {
+      newVisible.delete(userId);
+    } else {
+      newVisible.add(userId);
+    }
+    setVisiblePasswords(newVisible);
+  };
+
   const getRoleBadgeColor = (roleName: string) => {
     return roleName === 'ROLE_ADMIN' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800';
   };
 
-  // Generate page numbers for pagination
-  const getPageNumbers = () => {
-    const pages = [];
-    const maxVisiblePages = 5;
-    
-    let startPage = Math.max(1, pagination.currentPage - Math.floor(maxVisiblePages / 2));
-    const endPage = Math.min(pagination.totalPages, startPage + maxVisiblePages - 1);
-    
-    if (endPage - startPage + 1 < maxVisiblePages) {
-      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+  // Format date like ApiPage
+  const formatRelativeDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+
+    // Normalize to start of day (local time)
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+    const diffDays =
+      Math.round(
+        (startOfToday.getTime() - startOfDate.getTime()) /
+        (1000 * 60 * 60 * 24)
+      );
+
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+
+    if (diffDays < 0) return 'In the future';
+
+    if (diffDays < 7) {
+      return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
     }
-    
-    for (let i = startPage; i <= endPage; i++) {
-      pages.push(i);
+
+    if (diffDays < 30) {
+      const weeks = Math.floor(diffDays / 7);
+      return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
     }
-    
-    return pages;
+
+    return date.toLocaleDateString();
   };
 
-  const { startIndex, endIndex } = getDisplayRange();
+  //const { startIndex, endIndex } = getDisplayRange();
 
   return (
     <div className="relative min-h-screen bg-[#E7F2EF] p-8">
@@ -484,30 +513,56 @@ const UserAccountManagement: React.FC = () => {
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 bg-[#A1C2BD] rounded-lg">
-                  <User className="w-6 h-6 text-[#19183B]" />
+                  <Users2 className="w-6 h-6 text-[#19183B]" />
                 </div>
-                <h1 className="text-3xl font-bold text-[#19183B]">User Account Management</h1>
+                <h1 className="text-3xl font-bold text-[#19183B]">User Accounts</h1>
               </div>
-              <p className="text-[#708993] ml-14">Create, manage, and organize user accounts</p>
+              <p className="text-[#708993] ml-14">View and manage user accounts</p>
             </div>
-            {/*<button
-              onClick={() => setCreateDialogOpen(true)}
-              className="flex items-center gap-2 bg-[#19183B] text-white px-6 py-3 rounded-xl font-semibold hover:bg-[#708993] transition-colors shadow-lg"
-            >
-              <Plus className="w-5 h-5" />
-              Add User
-            </button>*/}
           </div>
         </div>
+
+        {/* Selection Bar */}
+        {selectedUsers.size > 0 && (
+          <div className="bg-white rounded-xl shadow-sm p-4 mb-6 border border-[#A1C2BD]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
+                    <Check className="w-3 h-3 text-blue-600" />
+                  </div>
+                  <span className="font-medium text-gray-900">
+                    {selectedUsers.size} selected
+                  </span>
+                </div>
+                <button
+                  onClick={() => setSelectedUsers(new Set())}
+                  className="text-sm text-gray-500 hover:text-gray-700"
+                >
+                  Deselect all
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDeleteSelected}
+                  className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  title="Delete selected"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Search and Controls */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border border-[#A1C2BD]">
           <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
-            <div className="relative flex-1 max-w-md">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#708993] w-5 h-5" />
               <input
                 type="text"
-                placeholder="Search users by username, email, or role..."
+                placeholder="Search users by username or email ..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 border-2 border-[#A1C2BD] rounded-xl focus:ring-2 focus:ring-[#708993] focus:border-[#708993] outline-none transition-all"
@@ -518,207 +573,236 @@ const UserAccountManagement: React.FC = () => {
               {/* Items per page selector */}
               <div className="flex items-center gap-2">
                 <span className="text-sm text-[#708993] whitespace-nowrap">Show:</span>
-                <Select.Root 
-                  value={pagination.itemsPerPage.toString()} 
-                  onValueChange={(value) => handleItemsPerPageChange(Number(value))}
+                <select
+                  value={pagination.itemsPerPage}
+                  onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+                  className="px-4 py-3 border-2 border-[#A1C2BD] rounded-xl bg-white focus:ring-2 focus:ring-[#708993] outline-none transition-all cursor-pointer"
                 >
-                  <Select.Trigger className="px-3 py-2 border-2 border-[#A1C2BD] rounded-lg focus:ring-2 focus:ring-[#708993] focus:border-[#708993] outline-none transition-all flex items-center justify-between bg-white min-w-[80px]">
-                    <Select.Value />
-                    <Select.Icon>
-                      <ChevronDown className="w-4 h-4 text-[#708993]" />
-                    </Select.Icon>
-                  </Select.Trigger>
-                  <Select.Portal>
-                    <Select.Content className="bg-white rounded-lg shadow-xl border-2 border-[#A1C2BD] overflow-hidden">
-                      <Select.Viewport>
-                        {itemsPerPageOptions.map(option => (
-                          <Select.Item 
-                            key={option} 
-                            value={option.toString()}
-                            className="px-3 py-2 hover:bg-[#E7F2EF] cursor-pointer outline-none flex items-center justify-between"
-                          >
-                            <Select.ItemText>{option}</Select.ItemText>
-                            <Select.ItemIndicator>
-                              <Check className="w-4 h-4 text-[#19183B]" />
-                            </Select.ItemIndicator>
-                          </Select.Item>
-                        ))}
-                      </Select.Viewport>
-                    </Select.Content>
-                  </Select.Portal>
-                </Select.Root>
+                  {itemsPerPageOptions.map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
                 <span className="text-sm text-[#708993] whitespace-nowrap">per page</span>
               </div>
-
-              {selectedUsers.size > 0 && (
-                <button
-                  onClick={handleDeleteSelected}
-                  className="flex items-center gap-2 bg-red-600 text-white px-4 py-3 rounded-xl font-semibold hover:bg-red-700 transition-colors whitespace-nowrap"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete Selected ({selectedUsers.size})
-                </button>
-              )}
             </div>
           </div>
         </div>
 
         {/* Users Table */}
         <div className="bg-white rounded-xl shadow-sm border border-[#A1C2BD] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-[#E7F2EF]/50 border-b border-[#A1C2BD]">
-                <tr>
-                  <th className="px-6 py-4 text-left">
-                    <input
-                      type="checkbox"
-                      checked={users.length > 0 && selectedUsers.size === users.length}
-                      onChange={toggleSelectAll}
-                      className="w-4 h-4 text-[#19183B] border-2 border-[#A1C2BD] rounded focus:ring-[#708993]"
-                    />
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#19183B]">Username</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#19183B]">Email</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#19183B]">Role</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#19183B]">Created</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#19183B]">Updated</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-[#19183B]">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#A1C2BD]/30">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-20 text-center text-[#708993]">
-                      <div className="flex flex-col items-center justify-center">
-                        <div className="w-8 h-8 border-4 border-[#A1C2BD] border-t-[#19183B] rounded-full animate-spin mb-4"></div>
-                        <p className="text-lg">Loading users...</p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : users.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-20 text-center text-[#708993]">
-                      <div className="flex flex-col items-center justify-center">
-                        <User className="w-16 h-16 mb-4 opacity-50" />
-                        <p className="text-lg mb-2">No users found</p>
-                        <p className="text-sm">
-                          {searchTerm ? 'Try adjusting your search terms' : 'Click "Add User" to create your first user account'}
-                        </p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  users.map((user) => (
-                    <tr key={user.id} className="hover:bg-[#E7F2EF]/30 transition-colors">
-                      <td className="px-6 py-4">
-                        <input
-                          type="checkbox"
-                          checked={selectedUsers.has(user.id)}
-                          onChange={() => toggleUserSelection(user.id)}
-                          className="w-4 h-4 text-[#19183B] border-2 border-[#A1C2BD] rounded focus:ring-[#708993]"
-                        />
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-[#A1C2BD] rounded-full flex items-center justify-center">
-                            <User className="w-4 h-4 text-[#19183B]" />
-                          </div>
-                          <span className="font-medium text-[#19183B]">{user.username}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-[#19183B]">{user.email}</td>
-                      <td className="px-6 py-4">
-                        {user.role.map(r => (
-                          <span 
-                            key={r.id} 
-                            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(r.name)}`}
-                          >
-                            <Shield className="w-3 h-3" />
-                            {r.name}
-                          </span>
-                        )) }
-                      </td>
-                      <td className="px-6 py-4 text-sm text-[#708993]">
-                        {new Date(user.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-[#708993]">
-                        {new Date(user.updatedAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => openEditDialog(user)}
-                            className="flex items-center gap-2 bg-[#708993] text-white px-3 py-2 rounded-lg hover:bg-[#19183B] transition-colors"
-                          >
-                            <Pencil className="w-4 h-4" />
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => openDeleteDialog(user)}
-                            className="flex items-center gap-2 bg-red-100 text-red-600 px-3 py-2 rounded-lg hover:bg-red-600 hover:text-white transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
+          <div className="p-6">
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center py-20 text-[#708993]">
+                <div className="w-8 h-8 border-4 border-[#A1C2BD] border-t-[#19183B] rounded-full animate-spin mb-4"></div>
+                <p className="text-lg">Loading users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-[#708993]">
+                <User className="w-16 h-16 mb-4 opacity-50" />
+                <p className="text-lg mb-2">No users found</p>
+                <p className="text-sm">
+                  {searchTerm ? 'Try adjusting your search terms' : 'No user accounts found'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-hidden border border-gray-200 rounded-xl">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="w-12 px-6 py-3 text-left">
+                        <CheckboxPrimitive.Root
+                          checked={selectedUsers.size === users.length && users.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                          className="w-4 h-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                        >
+                          <CheckboxPrimitive.Indicator>
+                            <Check className="w-3 h-3 text-white" />
+                          </CheckboxPrimitive.Indicator>
+                        </CheckboxPrimitive.Root>
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Password</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Updated</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {users.map((user) => (
+                      <tr
+                        key={user.id}
+                        className={`hover:bg-gray-50 transition-colors ${selectedUsers.has(user.id) ? 'bg-blue-50' : ''}`}
+                      >
+                        <td className="px-6 py-4">
+                          <CheckboxPrimitive.Root
+                            checked={selectedUsers.has(user.id)}
+                            onCheckedChange={() => toggleUserSelection(user.id)}
+                            className="w-4 h-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                          >
+                            <CheckboxPrimitive.Indicator>
+                              <Check className="w-3 h-3 text-white" />
+                            </CheckboxPrimitive.Indicator>
+                          </CheckboxPrimitive.Root>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded bg-[#E7F2EF] flex items-center justify-center">
+                              <User className="w-4 h-4 text-[#19183B]" />
+                            </div>
+                            <div>
+                              <div className="font-medium text-gray-900">{user.username}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-gray-700">{user.email}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap gap-1">
+                            {user.role.map(r => (
+                              <span
+                                key={r.id}
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(r.name)}`}
+                              >
+                                <Shield className="w-3 h-3" />
+                                {r.name.replace('ROLE_', '')}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-700 font-mono">
+                              {visiblePasswords.has(user.id)
+                                ? user.password || '••••••••'
+                                : '••••••••'}
+                            </span>
+                            <button
+                              onClick={() => togglePasswordVisibility(user.id)}
+                              className="p-1 text-gray-400 hover:text-[#19183B] transition-colors shrink-0"
+                              title={visiblePasswords.has(user.id) ? 'Hide password' : 'Show password'}
+                            >
+                              {visiblePasswords.has(user.id)
+                                ? <EyeOff className="w-4 h-4" />
+                                : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-gray-700">{formatRelativeDate(user.createdAt)}</div>
+                          <div className="text-xs text-gray-400">
+                            {new Date(user.createdAt).toLocaleDateString()}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {user.updatedAt ? (
+                            <>
+                              <div className="text-sm text-gray-700">{formatRelativeDate(user.updatedAt)}</div>
+                              <div className="text-xs text-gray-400">
+                                {new Date(user.updatedAt).toLocaleDateString()}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-sm text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-end gap-1">
+                            {/*<button
+                              onClick={() => openEditDialog(user)}
+                              className="p-2 text-gray-500 hover:text-[#19183B] hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Edit user"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>*/}
+                            <button
+                              onClick={() => openEditDialog(user)}
+                              className="p-2 text-gray-500 hover:text-[#19183B] hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Send Email to user"
+                            >
+                              <Mail className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => openDeleteDialog(user)}
+                              className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete user"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
-          {/* Pagination */}
+          {/* Pagination - Updated to match ApiPage style */}
           {pagination.totalPages > 1 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-[#A1C2BD] bg-[#E7F2EF]/50 gap-4">
-              <div className="text-sm text-[#708993]">
-                Showing {startIndex} to {endIndex} of {pagination.totalItems} entries
-              </div>
-              
-              <div className="flex items-center gap-2">
-                {/* Previous Button */}
-                <button
-                  onClick={() => handlePageChange(pagination.currentPage - 1)}
-                  disabled={pagination.currentPage === 1}
-                  className="flex items-center gap-2 px-3 py-2 border border-[#A1C2BD] rounded-lg hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
-                </button>
+            <div className="border-t border-[#A1C2BD] p-6 bg-[#E7F2EF]/30">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-[#708993]">
+                  Page {pagination.currentPage} of {pagination.totalPages} • {pagination.totalItems} items
+                </p>
+                <div className="flex items-center gap-2">
+                  {/* Previous */}
+                  <button
+                    onClick={() => handlePageChange(pagination.currentPage - 1)}
+                    disabled={pagination.currentPage === 1}
+                    className="flex items-center gap-2 px-4 py-2 border-2 border-[#A1C2BD] text-[#19183B] rounded-lg font-semibold hover:bg-[#A1C2BD] hover:text-white transition-colors disabled:opacity-50"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Previous
+                  </button>
 
-                {/* Page Numbers */}
-                <div className="flex gap-1">
-                  {getPageNumbers().map(page => (
-                    <button
-                      key={page}
-                      onClick={() => handlePageChange(page)}
-                      className={`w-10 h-10 flex items-center justify-center border rounded-lg transition-colors ${
-                        pagination.currentPage === page
-                          ? 'bg-[#19183B] text-white border-[#19183B]'
-                          : 'border-[#A1C2BD] hover:bg-white text-[#19183B]'
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  ))}
-                  
-                  {/* Ellipsis for more pages */}
-                  {pagination.totalPages > getPageNumbers()[getPageNumbers().length - 1] && (
-                    <span className="w-10 h-10 flex items-center justify-center text-[#708993]">
-                      ...
-                    </span>
-                  )}
+                  {/* Page numbers */}
+                  <div className="flex items-center gap-1">
+                    {(() => {
+                      const pages = [];
+                      const totalPages = pagination.totalPages;
+                      const maxVisible = 5;
+                      
+                      let startPage = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2));
+                      const endPage = Math.min(totalPages, startPage + maxVisible - 1);
+                      
+                      if (endPage - startPage + 1 < maxVisible) {
+                        startPage = Math.max(1, endPage - maxVisible + 1);
+                      }
+                      
+                      for (let i = startPage; i <= endPage; i++) {
+                        pages.push(i);
+                      }
+                      
+                      return pages.map(page => (
+                        <button
+                          key={page}
+                          onClick={() => handlePageChange(page)}
+                          className={`w-10 h-10 rounded-lg font-medium transition-colors ${
+                            pagination.currentPage === page
+                              ? 'bg-[#19183B] text-white'
+                              : 'border border-[#A1C2BD] text-[#19183B] hover:bg-[#A1C2BD] hover:text-white'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      ));
+                    })()}
+                  </div>
+
+                  {/* Next */}
+                  <button
+                    onClick={() => handlePageChange(pagination.currentPage + 1)}
+                    disabled={pagination.currentPage === pagination.totalPages}
+                    className="flex items-center gap-2 px-4 py-2 border-2 border-[#A1C2BD] text-[#19183B] rounded-lg font-semibold hover:bg-[#A1C2BD] hover:text-white transition-colors disabled:opacity-50"
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
                 </div>
-
-                {/* Next Button */}
-                <button
-                  onClick={() => handlePageChange(pagination.currentPage + 1)}
-                  disabled={pagination.currentPage === pagination.totalPages}
-                  className="flex items-center gap-2 px-3 py-2 border border-[#A1C2BD] rounded-lg hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </button>
               </div>
             </div>
           )}
@@ -878,33 +962,43 @@ const UserAccountManagement: React.FC = () => {
                   Role
                 </Form.Label>
 
-                  {/* Hidden input for validation */}
-                  <Form.Control asChild>
-                    <input
-                      type="text"
-                      value={isUser || isAdmin ? 'valid' : ''}
-                      onChange={() => {}}
-                      required
-                      style={{ display: 'none' }}
-                    />
-                  </Form.Control>
+                {/* Hidden input for validation */}
+                <Form.Control asChild>
+                  <input
+                    type="text"
+                    value={isUser || isAdmin ? 'valid' : ''}
+                    onChange={() => {}}
+                    required
+                    style={{ display: 'none' }}
+                  />
+                </Form.Control>
                 
                 <Form.Control asChild>
                   <div className='flex gap-4'>
-                    <div>
-                      <Checkbox 
-                        name='isUser' 
+                    <div className="flex items-center">
+                      <CheckboxPrimitive.Root 
+                        id="isUser"
                         checked={isUser} 
                         onCheckedChange={(checked) => setIsUser(checked === true)} 
-                      />
+                        className="w-4 h-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                      >
+                        <CheckboxPrimitive.Indicator>
+                          <Check className="w-3 h-3 text-white" />
+                        </CheckboxPrimitive.Indicator>
+                      </CheckboxPrimitive.Root>
                       <Form.Label className='ml-2' htmlFor='isUser'>User</Form.Label>
                     </div>
-                    <div>
-                      <Checkbox 
-                        name='isAdmin' 
+                    <div className="flex items-center">
+                      <CheckboxPrimitive.Root 
+                        id="isAdmin"
                         checked={isAdmin} 
                         onCheckedChange={(checked) => setIsAdmin(checked === true)} 
-                      />
+                        className="w-4 h-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                      >
+                        <CheckboxPrimitive.Indicator>
+                          <Check className="w-3 h-3 text-white" />
+                        </CheckboxPrimitive.Indicator>
+                      </CheckboxPrimitive.Root>
                       <Form.Label className='ml-2' htmlFor='isAdmin'>Admin</Form.Label>
                     </div>
                   </div>
@@ -1037,21 +1131,31 @@ const UserAccountManagement: React.FC = () => {
                 
                 <Form.Control asChild>
                   <div className='flex gap-4'>
-                    <div>
-                      <Checkbox 
-                        name='isUser' 
+                    <div className="flex items-center">
+                      <CheckboxPrimitive.Root 
+                        id="edit-isUser"
                         checked={isUser} 
                         onCheckedChange={(checked) => setIsUser(checked === true)} 
-                      />
-                      <Form.Label className='ml-2' htmlFor='isUser'>User</Form.Label>
+                        className="w-4 h-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                      >
+                        <CheckboxPrimitive.Indicator>
+                          <Check className="w-3 h-3 text-white" />
+                        </CheckboxPrimitive.Indicator>
+                      </CheckboxPrimitive.Root>
+                      <Form.Label className='ml-2' htmlFor='edit-isUser'>User</Form.Label>
                     </div>
-                    <div>
-                      <Checkbox 
-                        name='isAdmin' 
+                    <div className="flex items-center">
+                      <CheckboxPrimitive.Root 
+                        id="edit-isAdmin"
                         checked={isAdmin} 
                         onCheckedChange={(checked) => setIsAdmin(checked === true)} 
-                      />
-                      <Form.Label className='ml-2' htmlFor='isAdmin'>Admin</Form.Label>
+                        className="w-4 h-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                      >
+                        <CheckboxPrimitive.Indicator>
+                          <Check className="w-3 h-3 text-white" />
+                        </CheckboxPrimitive.Indicator>
+                      </CheckboxPrimitive.Root>
+                      <Form.Label className='ml-2' htmlFor='edit-isAdmin'>Admin</Form.Label>
                     </div>
                   </div>
                 </Form.Control>

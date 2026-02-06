@@ -23,32 +23,21 @@ const Pluma = () => {
         <div className="text-center space-y-8">
           <h1 className="text-5xl md:text-7xl font-bold leading-tight">
             <span style={{ color: '#19183B' }}>
-              Secure Digital Signatures
+              Digital Document Management
             </span>
             <br />
-            <span style={{ color: '#708993' }}>with PNPKI DICT</span>
+            <span style={{ color: '#708993' }}>and Signing Platform</span>
           </h1>
           <p className="text-xl md:text-2xl max-w-3xl mx-auto" style={{ color: '#708993' }}>
-            Sign documents digitally and verify signatures with confidence using the Philippine National Public Key Infrastructure
+            Upload documents, apply digital signatures, verify signed files, and securely share and manage your documents
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-8">
             <a 
-              href={`${import.meta.env.BASE_URL}public-sign`}
+              href={`${import.meta.env.BASE_URL}login`}
               className="px-8 py-4 rounded-lg text-lg font-semibold transition-all duration-200 transform hover:scale-105 shadow-lg"
               style={{ backgroundColor: '#19183B', color: '#E7F2EF' }}
             >
-              Start Signing
-            </a>
-            <a 
-              href={`${import.meta.env.BASE_URL}public-verifier`}
-              className="px-8 py-4 rounded-lg text-lg font-semibold transition-all duration-200 transform hover:scale-105 border-2"
-              style={{ 
-                backgroundColor: 'transparent', 
-                borderColor: '#708993',
-                color: '#19183B'
-              }}
-            >
-              Verify Document
+              Get Started
             </a>
           </div>
         </div>

@@ -97,7 +97,7 @@ const Login: React.FC = () => {
                 </Label.Root>
                 <Form.Message 
                   match="valueMissing"
-                  className="text-xs text-red-600"
+                    className="text-xs text-red-600"
                 >
                   Please enter your username
                 </Form.Message>
@@ -108,7 +108,8 @@ const Login: React.FC = () => {
                   id="username"
                   name="username"
                   value={formData.username}
-                  onChange={handleChange}
+                    onChange={handleChange}
+                    maxLength={50}
                   required
                   className="w-full px-4 py-3 border-2 border-[#A1C2BD] rounded-xl focus:ring-2 focus:ring-[#708993] focus:border-[#708993] outline-none transition-all placeholder:text-[#A1C2BD]"
                   placeholder="Enter your username"
@@ -139,7 +140,8 @@ const Login: React.FC = () => {
                   name="password"
                   value={formData.password}
                   onChange={handleChange}
-                  required
+                    required
+                    maxLength={50}
                   className="w-full px-4 py-3 border-2 border-[#A1C2BD] rounded-xl focus:ring-2 focus:ring-[#708993] focus:border-[#708993] outline-none transition-all placeholder:text-[#A1C2BD]"
                   placeholder="Enter your password"
                   disabled={isLoading}

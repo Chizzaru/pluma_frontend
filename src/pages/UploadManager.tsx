@@ -2260,66 +2260,68 @@ const UploadManager: React.FC = () => {
         </Dialog.Portal>
       </Dialog.Root>
 
+      
+
       {/* PDF Viewer Dialog */}
       <Dialog.Root open={pdfViewerOpen} onOpenChange={(open) => {
         if (!open) closePdfViewer();
       }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col border-2 border-[#A1C2BD] z-50">
+          <Dialog.Content className="fixed inset-4 bg-white rounded-2xl shadow-2xl flex flex-col border-2 border-[#A1C2BD] z-50">
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-[#A1C2BD] bg-[#E7F2EF] rounded-t-2xl">
-              <Dialog.Title className="flex items-center gap-3 text-xl font-bold text-[#19183B]">
-                <FileText className="w-6 h-6" />
-                {selectedDocument?.fileName || 'PDF Document'}
+            <div className="flex items-center justify-between p-6 pb-4 border-b border-[#A1C2BD] bg-[#E7F2EF] rounded-t-2xl">
+              <Dialog.Title className="flex items-center gap-3 text-xl font-bold text-[#19183B] truncate max-w-[50%]">
+                <FileText className="w-6 h-6 flex-shrink-0" />
+                <span className="truncate">{selectedDocument?.fileName || 'PDF Document'}</span>
               </Dialog.Title>
               
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-4">
                 {/* Page Navigation */}
-                <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-lg border border-[#A1C2BD]">
+                <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg border border-[#A1C2BD]">
                   <button
                     onClick={goToPreviousPage}
                     disabled={pageNumber <= 1}
-                    className="p-1 hover:bg-[#E7F2EF] rounded disabled:opacity-50"
+                    className="p-2 hover:bg-[#E7F2EF] rounded-lg disabled:opacity-50 transition-colors"
                   >
-                    <ChevronLeft className="w-4 h-4" />
+                    <ChevronLeft className="w-5 h-5" />
                   </button>
-                  <span className="text-sm font-medium min-w-[80px] text-center">
+                  <span className="text-sm font-medium min-w-[100px] text-center px-2">
                     Page {pageNumber} of {numPages}
                   </span>
                   <button
                     onClick={goToNextPage}
                     disabled={pageNumber >= numPages}
-                    className="p-1 hover:bg-[#E7F2EF] rounded disabled:opacity-50"
+                    className="p-2 hover:bg-[#E7F2EF] rounded-lg disabled:opacity-50 transition-colors"
                   >
-                    <ChevronRight className="w-4 h-4" />
+                    <ChevronRight className="w-5 h-5" />
                   </button>
                 </div>
 
                 {/* Zoom Controls */}
-                <div className="flex items-center gap-1 bg-white px-3 py-1 rounded-lg border border-[#A1C2BD]">
+                <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg border border-[#A1C2BD]">
                   <button
                     onClick={zoomOut}
                     disabled={scale <= 0.5}
-                    className="p-1 hover:bg-[#E7F2EF] rounded disabled:opacity-50"
+                    className="p-2 hover:bg-[#E7F2EF] rounded-lg disabled:opacity-50 transition-colors"
                     title="Zoom Out"
                   >
-                    <ZoomOut className="w-4 h-4" />
+                    <ZoomOut className="w-5 h-5" />
                   </button>
-                  <span className="text-sm font-medium min-w-[50px] text-center">
+                  <span className="text-sm font-medium min-w-[60px] text-center">
                     {Math.round(scale * 100)}%
                   </span>
                   <button
                     onClick={zoomIn}
                     disabled={scale >= 3}
-                    className="p-1 hover:bg-[#E7F2EF] rounded disabled:opacity-50"
+                    className="p-2 hover:bg-[#E7F2EF] rounded-lg disabled:opacity-50 transition-colors"
                     title="Zoom In"
                   >
-                    <ZoomIn className="w-4 h-4" />
+                    <ZoomIn className="w-5 h-5" />
                   </button>
                   <button
                     onClick={resetZoom}
-                    className="px-2 py-1 text-xs bg-[#A1C2BD] text-white rounded hover:bg-[#708993] transition-colors ml-1"
+                    className="px-3 py-1.5 text-sm bg-[#A1C2BD] text-white rounded-lg hover:bg-[#708993] transition-colors ml-1"
                   >
                     Reset
                   </button>
@@ -2327,25 +2329,26 @@ const UploadManager: React.FC = () => {
 
                 <button
                   onClick={closePdfViewer}
-                  className="p-2 hover:bg-red-100 rounded-lg transition-colors"
+                  className="p-2.5 hover:bg-red-100 rounded-lg transition-colors"
+                  title="Close"
                 >
-                  <X className="w-5 h-5 text-red-600" />
+                  <X className="w-6 h-6 text-red-600" />
                 </button>
               </div>
             </div>
 
-            {/* PDF Content */}
-            <div className="flex-1 overflow-auto bg-gray-100 p-4">
+            {/* PDF Content - Maximized */}
+            <div className="flex-1 overflow-auto bg-gray-100 p-6">
               {isPdfLoading ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="text-center">
-                    <div className="w-8 h-8 border-4 border-[#A1C2BD] border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-                    <p className="text-[#708993]">Loading PDF...</p>
+                    <div className="w-12 h-12 border-4 border-[#A1C2BD] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-lg text-[#708993]">Loading PDF document...</p>
                   </div>
                 </div>
               ) : pdfUrl ? (
-                <div className="flex justify-center items-start min-h-full">
-                  <div className="bg-white shadow-lg rounded-lg p-4 inline-block">
+                <div className="flex justify-center items-start min-h-full w-full">
+                  <div className="bg-white shadow-xl rounded-xl p-6 max-w-full">
                     <Document
                       file={pdfUrl}
                       onLoadSuccess={onDocumentLoadSuccess}
@@ -2354,10 +2357,10 @@ const UploadManager: React.FC = () => {
                         toast.error('Failed to load PDF document');
                       }}
                       loading={
-                        <div className="flex items-center justify-center py-20">
+                        <div className="flex items-center justify-center py-32">
                           <div className="text-center">
-                            <div className="w-8 h-8 border-4 border-[#A1C2BD] border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-                            <p className="text-[#708993]">Loading page...</p>
+                            <div className="w-10 h-10 border-4 border-[#A1C2BD] border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                            <p className="text-[#708993]">Loading PDF content...</p>
                           </div>
                         </div>
                       }
@@ -2367,38 +2370,36 @@ const UploadManager: React.FC = () => {
                         scale={scale}
                         renderTextLayer={false}
                         renderAnnotationLayer={false}
-                        className="shadow-sm"
+                        className="shadow-lg max-w-full"
+                        width={Math.min(1200, window.innerWidth * 0.8)} // Adaptive width
                       />
                     </Document>
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-center h-full text-[#708993]">
-                  <p>No PDF document to display</p>
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center p-8">
+                    <FileText className="w-16 h-16 text-[#A1C2BD] mx-auto mb-4" />
+                    <p className="text-lg text-[#708993]">No PDF document to display</p>
+                  </div>
                 </div>
               )}
             </div>
 
             {/* Footer */}
-            <div className="border-t border-[#A1C2BD] p-4 bg-[#E7F2EF] rounded-b-2xl">
+            <div className="border-t border-[#A1C2BD] p-5 bg-[#E7F2EF] rounded-b-2xl">
               <div className="flex justify-between items-center">
-                <p className="text-sm text-[#708993]">
-                  Use the controls above to navigate and zoom the document
-                </p>
-                {selectedDocument && (
-                  <button
-                    onClick={() => handleDownload(selectedDocument)}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#19183B] text-white rounded-lg hover:bg-[#708993] transition-colors"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download
-                  </button>
-                )}
+                <div className="text-sm text-[#708993] max-w-[70%]">
+                  <p>Use the navigation and zoom controls above to view the document. Scroll to see more content.</p>
+                </div>
               </div>
             </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+
+
       
       {/* Share Dialog - Updated with Tabs */}
       <Dialog.Root open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
